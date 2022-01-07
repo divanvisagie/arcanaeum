@@ -35,6 +35,20 @@ fn read_u32(br: &mut std::fs::File) -> u32 {
     rdr.read_u32::<LittleEndian>().unwrap()
 }
 
+fn read_f32(br: &mut std::fs::File) -> f32 {
+    let chunk_size = size_of::<f32>();
+
+    let mut buffer = Vec::with_capacity(chunk_size);
+
+    br.take(chunk_size as u64)
+        .read_to_end(&mut buffer)
+        .map_err(|err| println!("{:?}", err))
+        .ok();
+
+    let mut rdr = Cursor::new(buffer);
+    rdr.read_f32::<LittleEndian>().unwrap()
+}
+
 fn read_u16(br: &mut std::fs::File) -> u16 {
     let chunk_size = size_of::<u16>();
 
@@ -61,10 +75,11 @@ fn read_wstring(br: &mut std::fs::File) -> String {
 
 #[derive(PartialEq, Eq)]
 enum SkType {
-    SkU32,
-    SKU16,
-    SkWstring,
-    SkChars
+    UInt32,
+    UInt16,
+    Float32,
+    WString,
+    Chars
 }
 
 struct InfoItem {
@@ -91,21 +106,26 @@ impl InfoItem {
     }
 
     fn print_value(&self,br: &mut std::fs::File){
-        if self.sk_type == SkType::SkChars {
+        if self.sk_type == SkType::Chars {
             let str = read_string_of_size(br,self.size as u32);
             println!("{}:    {:?}", self.name ,str);
         }
-        if self.sk_type == SkType::SkU32 {
+        if self.sk_type == SkType::UInt32 {
             let u  = read_u32(br);
             println!("{}:    {:?}", self.name, u);
         }
 
-        if self.sk_type == SkType::SKU16 {
+        if self.sk_type == SkType::Float32 {
+            let u  = read_f32(br);
+            println!("{}:    {:?}", self.name, u);
+        }
+
+        if self.sk_type == SkType::UInt16 {
             let u  = read_u16(br);
             println!("{}:    {:?}", self.name, u);
         }
 
-        if self.sk_type == SkType::SkWstring {
+        if self.sk_type == SkType::WString {
             let str = read_wstring(br);
             println!("{}:    {:?}", self.name, str);
         }
@@ -119,16 +139,22 @@ fn main() -> io::Result<()> {
 
 
     let items = [
-       InfoItem::new_with_size("magic",13, SkType::SkChars),
-       InfoItem::new("header_size", SkType::SkU32),
-       InfoItem::new("version", SkType::SkU32),
-       InfoItem::new("save_number", SkType::SkU32),
-       InfoItem::new("player_name", SkType::SkWstring),
-       InfoItem::new("player_level", SkType::SkU32),
-       InfoItem::new("player_location", SkType::SkWstring),
-       InfoItem::new("game_date", SkType::SkWstring),
-       InfoItem::new("player_race_editor_id", SkType::SkWstring),
-       InfoItem::new("player_sex", SkType::SKU16)
+       InfoItem::new_with_size("magic",13, SkType::Chars),
+       InfoItem::new("header_size", SkType::UInt32),
+       InfoItem::new("version", SkType::UInt32),
+       InfoItem::new("save_number", SkType::UInt32),
+       InfoItem::new("player_name", SkType::WString),
+       InfoItem::new("player_level", SkType::UInt32),
+       InfoItem::new("player_location", SkType::WString),
+       InfoItem::new("game_date", SkType::WString),
+       InfoItem::new("player_race_editor_id", SkType::WString),
+       InfoItem::new("player_sex", SkType::UInt16), // 0 = male, 1 = female
+       InfoItem::new("player_current_experience", SkType::Float32),
+       InfoItem::new("player_level_up_exp", SkType::Float32),
+       InfoItem::new_with_size("file_time", 8, SkType::Chars), // TODO: temp solution until FILETIME is implemented
+       InfoItem::new("shot_width", SkType::UInt32),
+       InfoItem::new("shot_height", SkType::UInt32),
+       InfoItem::new("compression", SkType::UInt16) //0 = None, 1 = zlib, 2 = lz4
     ];
 
     for i in items {
