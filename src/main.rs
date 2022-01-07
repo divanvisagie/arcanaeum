@@ -158,7 +158,7 @@ impl InfoItem {
 }
 
 fn main() -> io::Result<()> {
-    let mut file = std::fs::File::open("test.ess")?;
+    let mut file = std::fs::File::open("./input/test.ess")?;
     let br = file.by_ref();
 
 
