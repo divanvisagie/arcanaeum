@@ -63,6 +63,23 @@ fn read_u16(br: &mut std::fs::File) -> u16 {
     rdr.read_u16::<LittleEndian>().unwrap()
 }
 
+fn read_u8(br: &mut std::fs::File) -> u8 {
+    let chunk_size = size_of::<u8>();
+
+    let mut buffer = Vec::with_capacity(chunk_size);
+
+    br.take(chunk_size as u64)
+        .read_to_end(&mut buffer)
+        .map_err(|err| println!("{:?}", err))
+        .ok();
+
+    //let mut rdr = Cursor::new(buffer);
+    //rdr.read_u8::<LittleEndian>().unwrap()
+
+    buffer[0]
+}
+
+
 fn read_wstring(br: &mut std::fs::File) -> String {
     let size = read_u16(br);
     let mut str = String::new();
@@ -75,6 +92,7 @@ fn read_wstring(br: &mut std::fs::File) -> String {
 
 #[derive(PartialEq, Eq)]
 enum SkType {
+    UInt8,
     UInt32,
     UInt16,
     Float32,
@@ -125,6 +143,12 @@ impl InfoItem {
             println!("{}:    {:?}", self.name, u);
         }
 
+        if self.sk_type == SkType::UInt8 {
+            let u  = read_u8(br);
+            println!("{}:    {:?}", self.name, u);
+        }
+        
+
         if self.sk_type == SkType::WString {
             let str = read_wstring(br);
             println!("{}:    {:?}", self.name, str);
@@ -141,6 +165,8 @@ fn main() -> io::Result<()> {
     let items = [
        InfoItem::new_with_size("magic",13, SkType::Chars),
        InfoItem::new("header_size", SkType::UInt32),
+
+       // Start Header Section
        InfoItem::new("version", SkType::UInt32),
        InfoItem::new("save_number", SkType::UInt32),
        InfoItem::new("player_name", SkType::WString),
@@ -154,7 +180,17 @@ fn main() -> io::Result<()> {
        InfoItem::new_with_size("file_time", 8, SkType::Chars), // TODO: temp solution until FILETIME is implemented
        InfoItem::new("shot_width", SkType::UInt32),
        InfoItem::new("shot_height", SkType::UInt32),
-       InfoItem::new("compression", SkType::UInt16) //0 = None, 1 = zlib, 2 = lz4
+       InfoItem::new("compression", SkType::UInt16), //0 = None, 1 = zlib, 2 = lz4
+       // End Header Section
+       InfoItem::new("screenshot_data", SkType::UInt8),
+       InfoItem::new("uncompressed_length", SkType::UInt32),
+       InfoItem::new("compressed_length", SkType::UInt32),
+       InfoItem::new("form_version", SkType::UInt8),
+       InfoItem::new("plugin_info_size", SkType::UInt32),
+
+       // Start Plugin Info Section
+       InfoItem::new("pluginCount", SkType::UInt8),
+    //    InfoItem::new("plugins", SkType::WString) //TODO: Implement wstring[plugincount]
     ];
 
     for i in items {
