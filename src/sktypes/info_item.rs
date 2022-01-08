@@ -1,56 +1,80 @@
 use crate::sktypes::{read_string_of_size, read_u8, read_u16, read_u32, read_f32, read_wstring};
 
-use super::types::SkType;
+use super::{types::SkType, read_unknown};
 
 pub struct InfoItem {
     name: String,
-    size: usize,
     sk_type: SkType,
+    value: String
+}
+
+pub trait PrintableInfoItem {
+    fn print_value(&self);
 }
 
 impl InfoItem {
-    pub fn new(name: &str, sk_type: SkType) -> InfoItem {
-        InfoItem {
-            name: name.to_string(),
-            size: 0,
-            sk_type,
-        }
-    }
-
-    pub fn new_with_size(name: &str, size: usize, sk_type: SkType) -> InfoItem {
-        InfoItem {
-            name: name.to_string(),
-            size,
-            sk_type,
-        }
-    }
-
-    pub fn print_value(&self, br: &mut std::fs::File) {
-        match self.sk_type {
-            SkType::Chars => {
-                let str = read_string_of_size(br, self.size as u32);
-                println!("{}:    {:?}", self.name, str);
+    pub fn new(file: &mut std::fs::File, name: &str, sk_type: SkType) -> InfoItem {
+        match sk_type {
+            SkType::Char13 => {
+                let str = read_string_of_size(file, 13 as u32);
+                InfoItem {
+                    name: name.to_string(),
+                    sk_type,
+                    value: str.to_string()
+                }
             }
             SkType::UInt8 => {
-                let u = read_u8(br);
-                println!("{}:    {:?}", self.name, u);
-            }
-            SkType::UInt16 => {
-                let u = read_u16(br);
-                println!("{}:    {:?}", self.name, u);
-            }
+                let v = read_u8(file);
+                InfoItem {
+                    name: name.to_string(),
+                    sk_type,
+                    value: v.to_string()
+                }
+            },
             SkType::UInt32 => {
-                let u = read_u32(br);
-                println!("{}:    {:?}", self.name, u);
-            }
+                let v = read_u32(file);
+                InfoItem {
+                    name: name.to_string(),
+                    sk_type,
+                    value: v.to_string()
+                }
+            },
+            SkType::UInt16 => {
+                let v = read_u16(file);
+                InfoItem {
+                    name: name.to_string(),
+                    sk_type,
+                    value: v.to_string()
+                }
+            },
             SkType::Float32 => {
-                let u = read_f32(br);
-                println!("{}:    {:?}", self.name, u);
-            }
+                let v = read_f32(file);
+                InfoItem {
+                    name: name.to_string(),
+                    sk_type,
+                    value: v.to_string()
+                }
+            },
             SkType::WString => {
-                let str = read_wstring(br);
-                println!("{}:    {:?}", self.name, str);
-            }
+                let str = read_wstring(file);
+                InfoItem {
+                    name: name.to_string(),
+                    sk_type,
+                    value: str.to_string()
+                }
+            },
+            SkType::Unknown => {
+                let str = read_unknown(file, 8);
+                InfoItem {
+                    name: name.to_string(),
+                    sk_type,
+                    value: str.to_string()
+                }
+            },
         }
+    }
+
+    pub fn print_value(&self) {
+        println!("{}                         : {:?}                                         ({:?})", self.name, self.value, self.sk_type)
     }
 }

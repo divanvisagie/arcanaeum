@@ -13,6 +13,9 @@ use crate::sktypes::types::SkType;
 mod sktypes;
 
 fn main() -> io::Result<()> {
+    tracing_subscriber::fmt::init();
+    tracing::info!("App booting...");
+
     let res = rfd::FileDialog::new()
         .add_filter("Elder Scrolls Save", &["ess"])
         .set_directory("./input")
@@ -22,42 +25,42 @@ fn main() -> io::Result<()> {
 
     let mut file = std::fs::File::open(res)?;
 
-    let br = file.by_ref();
+    let file = file.by_ref();
 
-    let items = [
-        InfoItem::new_with_size("magic", 13, SkType::Chars),
-        InfoItem::new("header_size", SkType::UInt32),
+    let items= [
+        InfoItem::new(file,"magic", SkType::Char13),
+        InfoItem::new(file, "header_size", SkType::UInt32),
         // Start Header Section
-        InfoItem::new("version", SkType::UInt32),
-        InfoItem::new("save_number", SkType::UInt32),
-        InfoItem::new("player_name", SkType::WString),
-        InfoItem::new("player_level", SkType::UInt32),
-        InfoItem::new("player_location", SkType::WString),
-        InfoItem::new("game_date", SkType::WString),
-        InfoItem::new("player_race_editor_id", SkType::WString),
-        InfoItem::new("player_sex", SkType::UInt16), // 0 = male, 1 = female
-        InfoItem::new("player_current_experience", SkType::Float32),
-        InfoItem::new("player_level_up_exp", SkType::Float32),
-        InfoItem::new_with_size("file_time", 8, SkType::Chars), // TODO: temp solution until FILETIME is implemented
-        InfoItem::new("shot_width", SkType::UInt32),
-        InfoItem::new("shot_height", SkType::UInt32),
-        InfoItem::new("compression", SkType::UInt16), //0 = None, 1 = zlib, 2 = lz4
+        InfoItem::new(file,"version", SkType::UInt32),
+        InfoItem::new(file,"save_number", SkType::UInt32),
+        InfoItem::new(file,"player_name", SkType::WString),
+        InfoItem::new(file,"player_level", SkType::UInt32),
+        InfoItem::new(file,"player_location", SkType::WString),
+        InfoItem::new(file,"game_date", SkType::WString),
+        InfoItem::new(file,"player_race_editor_id", SkType::WString),
+        InfoItem::new(file,"player_sex", SkType::UInt16), // 0 = male, 1 = female
+        InfoItem::new(file,"player_current_experience", SkType::Float32),
+        InfoItem::new(file,"player_level_up_exp", SkType::Float32),
+        InfoItem::new(file,"file_time", SkType::Unknown), // TODO: temp solution until FILETIME is implemented
+        InfoItem::new(file,"shot_width", SkType::UInt32),
+        InfoItem::new(file,"shot_height", SkType::UInt32),
+        InfoItem::new(file,"compression", SkType::UInt16), //0 = None, 1 = zlib, 2 = lz4
         // End Header Section
-        InfoItem::new("screenshot_data", SkType::UInt8),
-        InfoItem::new("uncompressed_length", SkType::UInt32),
-        InfoItem::new("compressed_length", SkType::UInt32),
-        InfoItem::new("form_version", SkType::UInt8),
-        InfoItem::new("plugin_info_size", SkType::UInt32),
+        InfoItem::new(file,"screenshot_data", SkType::UInt8),
+        InfoItem::new(file,"uncompressed_length", SkType::UInt32),
+        InfoItem::new(file,"compressed_length", SkType::UInt32),
+        InfoItem::new(file,"form_version", SkType::UInt8),
+        InfoItem::new(file,"plugin_info_size", SkType::UInt32),
         // Start Plugin Info Section
-        InfoItem::new("pluginCount", SkType::UInt8),
+        InfoItem::new(file,"pluginCount", SkType::UInt8),
         //    InfoItem::new("plugins", SkType::WString) //TODO: Implement wstring[plugincount]
     ];
 
     for i in items {
-        i.print_value(br);
+        i.print_value();
     }
 
-    let sp = br.stream_position()?;
+    let sp = file.stream_position()?;
     println!("========================\nposition in file: {:?}", sp);
 
     // Pause execution
