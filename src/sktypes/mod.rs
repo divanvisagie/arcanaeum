@@ -2,6 +2,10 @@ use std::{io::{Read, Cursor}, mem::size_of};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
+pub mod info_item;
+pub mod types;
+
+
 pub fn read_string_of_size(br: &mut std::fs::File, size: u32) -> String {
     let mut str = String::new();
     br.take(size as u64)
