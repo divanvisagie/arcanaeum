@@ -1,4 +1,4 @@
-use std::{mem::size_of, io::Cursor};
+use std::{mem::size_of, io::{Cursor, Read}};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
@@ -40,6 +40,7 @@ impl SkTypeReadable for SkChar13 {
 
 
 // UInt 32
+#[derive(Clone)]
 pub struct SkUint32 {
     name: String,
     value: u32
@@ -54,6 +55,10 @@ impl SkUint32 {
             name: name.to_string(),
             value
         }
+    }
+
+    pub fn get_value(&self) -> u32 {
+        self.value
     }
 }
 impl SkTypeReadable for SkUint32 {
@@ -198,35 +203,6 @@ impl SkTypeReadable for SkFloat32 {
 
     fn get_type(&self) -> String {
         "float32".to_string()
-    }
-}
-
-pub struct SkWstringArray {
-    value: Vec<String>,
-    name: String
-}
-
-impl SkWstringArray {
-    pub fn from_file(file: &mut std::fs::File, name: &str, item_count: u32) -> SkWstringArray {
-        
-        let count = item_count.clone();
-        SkWstringArray {
-            name: name.to_string(),
-            value : Vec::with_capacity(count.try_into().unwrap())
-        }
-    }
-}
-impl SkTypeReadable for SkWstringArray {
-    fn get_value_string(&self) -> String {
-        format!("{:?}", self.value)
-    }
-
-    fn get_name(&self) -> String {
-        self.name.to_string()
-    }
-
-    fn get_type(&self) -> String {
-        "wstring[]".to_string()
     }
 }
 

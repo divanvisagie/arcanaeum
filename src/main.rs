@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 /**
  * Author: Divan Visagie
- * https://en.uesp.net/wiki/Skyrim_Mod:Save_File_Format#Header
+ * https://en.uesp.net/wiki/Skyrim_Mod:Save_File_Format
  * https://en.uesp.net/wiki/Skyrim_Mod:File_Format_Conventions
 */
 use std::io::Read;
@@ -10,6 +10,8 @@ use std::io::Seek;
 use eframe::egui;
 use eframe::epi;
 
+use crate::sktypes::plugin_info::PluginInfo;
+use crate::sktypes::skwstringarray::SkWstringArray;
 use crate::sktypes::types::SkChar13;
 use crate::sktypes::types::SkFloat32;
 use crate::sktypes::types::SkTypeReadable;
@@ -18,7 +20,6 @@ use crate::sktypes::types::SkUint32;
 use crate::sktypes::types::SkUint8;
 use crate::sktypes::types::SkUnknown;
 use crate::sktypes::types::SkWstring;
-use crate::sktypes::types::SkWstringArray;
 
 mod sktypes;
 
@@ -104,15 +105,30 @@ fn read_file(path: String) -> Vec<Box<dyn SkTypeReadable>> {
     items.push(Box::new(SkUint8::from_file(file, "screenshot_data")));
     items.push(Box::new(SkUint32::from_file(file, "uncompressed_length")));
     items.push(Box::new(SkUint32::from_file(file, "compressed_length")));
-    items.push(Box::new(SkUint8::from_file(file, "form_version")));
-    items.push(Box::new(SkUint32::from_file(file, "plugin_info_size")));
+
+
+    let form_version = SkUint8::from_file(file, "form_version");
+    items.push(Box::new(form_version.clone()));
+
+    let plugin_info_size = SkUint32::from_file(file, "plugin_info_size");
+    items.push(Box::new(plugin_info_size.clone()));
 
     // Start Plugin Info Section
     let plugin_count = SkUint8::from_file(file, "plugin_count");
     items.push(Box::new(plugin_count.clone()));
 
     let size = plugin_count.get_value();
-    items.push(Box::new(SkWstringArray::from_file(file, "plugins", size.into())));
+    let plugin_info_size_value = plugin_info_size.get_value();
+    items.push(Box::new(PluginInfo::from_file(file, "plugins", size.into(), plugin_info_size_value)));
+
+
+    if form_version.get_value() >= 78 {
+        // Only for SE save games (and formVersion >= 78?). This contains info about ESL plugins.
+        tracing::info!("Special Edition, should contain Light Plugin Info");
+    }
+
+    
+    items.push(Box::new(SkUnknown::from_file(file, "form_id_array_count_offset", 18000000)));
     
     //    InfoItem::new("plugins", SkType::WString) //TODO: Implement wstring[plugincount]
     // let meta_state = HashMap::new();

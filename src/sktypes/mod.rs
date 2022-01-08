@@ -3,6 +3,8 @@ use std::{io::{Read, Cursor, Seek}, mem::size_of};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 pub mod types;
+pub mod skwstringarray;
+pub mod plugin_info;
 
 fn read_buffer(file: &mut std::fs::File, size: usize) -> Vec<u8> {
     let mut buffer = Vec::with_capacity(size);
@@ -10,7 +12,7 @@ fn read_buffer(file: &mut std::fs::File, size: usize) -> Vec<u8> {
 
     file.take(size as u64)
         .read_to_end(&mut buffer)
-        .map_err(|err| println!("{:?}", err))
+        .map_err(|err| tracing::error!("{:?}", err))
         .ok();
 
     tracing::info!("Read {:?} bytes from position: {:?}:  Buffer {:?}", size , sp.unwrap(), buffer);
