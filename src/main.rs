@@ -1,94 +1,18 @@
 /**
+ * Author: Divan Visagie
  * https://en.uesp.net/wiki/Skyrim_Mod:Save_File_Format#Header
  * https://en.uesp.net/wiki/Skyrim_Mod:File_Format_Conventions
 */
 
-
-use byteorder::{ReadBytesExt, LittleEndian};
-use std::io::{Cursor, Seek};
+use std::io;
+use std::io::{Seek};
 use std::{
-    io::{self, Read},
-    mem::size_of,
+    io::{Read},
 };
 
+use crate::sktypes::{read_string_of_size, read_u32, read_f32, read_wstring, read_u8, read_u16};
 
-fn read_string_of_size(br: &mut std::fs::File, size: u32) -> String {
-    let mut str = String::new();
-    br.take(size as u64)
-        .read_to_string(&mut str)
-        .map_err(|err| println!("{:?}", err))
-        .ok();
-    str
-}
-
-fn read_u32(br: &mut std::fs::File) -> u32 {
-    let chunk_size = size_of::<u32>();
-
-    let mut buffer = Vec::with_capacity(chunk_size);
-
-    br.take(chunk_size as u64)
-        .read_to_end(&mut buffer)
-        .map_err(|err| println!("{:?}", err))
-        .ok();
-
-    let mut rdr = Cursor::new(buffer);
-    rdr.read_u32::<LittleEndian>().unwrap()
-}
-
-fn read_f32(br: &mut std::fs::File) -> f32 {
-    let chunk_size = size_of::<f32>();
-
-    let mut buffer = Vec::with_capacity(chunk_size);
-
-    br.take(chunk_size as u64)
-        .read_to_end(&mut buffer)
-        .map_err(|err| println!("{:?}", err))
-        .ok();
-
-    let mut rdr = Cursor::new(buffer);
-    rdr.read_f32::<LittleEndian>().unwrap()
-}
-
-fn read_u16(br: &mut std::fs::File) -> u16 {
-    let chunk_size = size_of::<u16>();
-
-    let mut buffer = Vec::with_capacity(chunk_size);
-
-    br.take(chunk_size as u64)
-        .read_to_end(&mut buffer)
-        .map_err(|err| println!("{:?}", err))
-        .ok();
-
-    let mut rdr = Cursor::new(buffer);
-    rdr.read_u16::<LittleEndian>().unwrap()
-}
-
-fn read_u8(br: &mut std::fs::File) -> u8 {
-    let chunk_size = size_of::<u8>();
-
-    let mut buffer = Vec::with_capacity(chunk_size);
-
-    br.take(chunk_size as u64)
-        .read_to_end(&mut buffer)
-        .map_err(|err| println!("{:?}", err))
-        .ok();
-
-    //let mut rdr = Cursor::new(buffer);
-    //rdr.read_u8::<LittleEndian>().unwrap()
-
-    buffer[0]
-}
-
-
-fn read_wstring(br: &mut std::fs::File) -> String {
-    let size = read_u16(br);
-    let mut str = String::new();
-    br.take(size as u64)
-        .read_to_string(&mut str)
-        .map_err(|err| println!("{:?}", err))
-        .ok();
-    str
-}
+mod sktypes;
 
 #[derive(PartialEq, Eq)]
 enum SkType {
@@ -158,7 +82,16 @@ impl InfoItem {
 }
 
 fn main() -> io::Result<()> {
-    let mut file = std::fs::File::open("./input/test.ess")?;
+
+    let res = rfd::FileDialog::new()
+        .add_filter("Elder Scrolls Save", &["ess"])
+        .set_directory("./input")
+        .pick_file().unwrap().into_os_string();
+
+    
+
+    let mut file = std::fs::File::open(res)?;
+
     let br = file.by_ref();
 
 
@@ -199,6 +132,12 @@ fn main() -> io::Result<()> {
 
     let sp = br.stream_position()?;
     println!("========================\nposition in file: {:?}", sp);
+
+
+    // Pause execution
+    let mut stdin = io::stdin();
+    println!("Press any key to exit...");
+    let _ = stdin.read(&mut [0u8]).unwrap();
 
     Ok(())
 }
