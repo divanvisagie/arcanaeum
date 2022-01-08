@@ -1,4 +1,4 @@
-use std::borrow::Borrow;
+use std::collections::HashMap;
 /**
  * Author: Divan Visagie
  * https://en.uesp.net/wiki/Skyrim_Mod:Save_File_Format#Header
@@ -10,14 +10,20 @@ use std::io::Seek;
 use eframe::egui;
 use eframe::epi;
 
-use crate::sktypes::info_item::InfoItem;
-use crate::sktypes::types::SkType;
+use crate::sktypes::types::SkChar13;
+use crate::sktypes::types::SkFloat32;
+use crate::sktypes::types::SkTypeReadable;
+use crate::sktypes::types::SkUint16;
+use crate::sktypes::types::SkUint32;
+use crate::sktypes::types::SkUint8;
+use crate::sktypes::types::SkUnknown;
+use crate::sktypes::types::SkWstring;
 
 mod sktypes;
 
 struct AppState {
     file_path: String,
-    values: Vec<InfoItem>
+    values: Vec<Box<dyn SkTypeReadable>>,
 }
 
 impl epi::App for AppState {
@@ -40,17 +46,19 @@ impl epi::App for AppState {
                 .min_col_width(300.0)
                 .show(ui, |ui| {
                     ui.label("Name");
-                    ui.label( "Value");
+                    ui.label("Value");
                     ui.label("Type");
                     ui.end_row();
 
-                    for track in self.values.iter() {
-                        ui.label(track.name.as_str());
-                        ui.label(track.value.as_str());
-                        ui.label(format!("{:?}", track.sk_type));
+                    for value_entry in self.values.iter() {
+                        ui.label(value_entry.get_name());
+                        ui.label(value_entry.get_value_string());
+                        ui.label(value_entry.get_type());
                         ui.end_row();
                     }
                 });
+
+            ui.hyperlink("https://en.uesp.net/wiki/Skyrim_Mod:Save_File_Format");
         });
     }
 
@@ -59,58 +67,69 @@ impl epi::App for AppState {
     }
 }
 
-fn read_file(path: String) -> Vec<InfoItem> {
+fn read_file(path: String) -> Vec<Box<dyn SkTypeReadable>> {
     tracing::info!("Loading file: {:?}", path);
     let mut file = std::fs::File::open(path)
         .map_err(|err| {
             println!("Error {:?}", err);
         })
-        .ok().unwrap();
-        
+        .ok()
+        .unwrap();
 
     let file = file.by_ref();
 
-    let items = [
-        InfoItem::new(file, "magic", SkType::Char13),
-        InfoItem::new(file, "header_size", SkType::UInt32),
-        // Start Header Section
-        InfoItem::new(file, "version", SkType::UInt32),
-        InfoItem::new(file, "save_number", SkType::UInt32),
-        InfoItem::new(file, "player_name", SkType::WString),
-        InfoItem::new(file, "player_level", SkType::UInt32),
-        InfoItem::new(file, "player_location", SkType::WString),
-        InfoItem::new(file, "game_date", SkType::WString),
-        InfoItem::new(file, "player_race_editor_id", SkType::WString),
-        InfoItem::new(file, "player_sex", SkType::UInt16), // 0 = male, 1 = female
-        InfoItem::new(file, "player_current_experience", SkType::Float32),
-        InfoItem::new(file, "player_level_up_exp", SkType::Float32),
-        InfoItem::new(file, "file_time", SkType::Unknown), // TODO: temp solution until FILETIME is implemented
-        InfoItem::new(file, "shot_width", SkType::UInt32),
-        InfoItem::new(file, "shot_height", SkType::UInt32),
-        InfoItem::new(file, "compression", SkType::UInt16), //0 = None, 1 = zlib, 2 = lz4
-        // End Header Section
-        InfoItem::new(file, "screenshot_data", SkType::UInt8),
-        InfoItem::new(file, "uncompressed_length", SkType::UInt32),
-        InfoItem::new(file, "compressed_length", SkType::UInt32),
-        InfoItem::new(file, "form_version", SkType::UInt8),
-        InfoItem::new(file, "plugin_info_size", SkType::UInt32),
-        // Start Plugin Info Section
-        InfoItem::new(file, "pluginCount", SkType::UInt8),
-        //    InfoItem::new("plugins", SkType::WString) //TODO: Implement wstring[plugincount]
-    ];
-    let v = items.to_vec();
-    for i in items {
-        i.print_value();
-        // c.append(i.name.to_string());
-    }
+    let mut items: Vec<Box<dyn SkTypeReadable>> = Vec::new();
+    items.push(Box::new(SkChar13::from_file(file, "magic")));
+    items.push(Box::new(SkUint32::from_file(file, "header_size")));
+    // Start Header Section
+    items.push(Box::new(SkUint32::from_file(file, "version")));
+    items.push(Box::new(SkUint32::from_file(file, "save_number")));
+    items.push(Box::new(SkWstring::from_file(file, "player_name")));
+    items.push(Box::new(SkUint32::from_file(file, "player_level")));
+    items.push(Box::new(SkWstring::from_file(file, "player_location")));
+    items.push(Box::new(SkWstring::from_file(file, "game_date")));
+    items.push(Box::new(SkWstring::from_file(file, "player_race_editor")));
+    items.push(Box::new(SkUint16::from_file(file, "player_sex")));
+    items.push(Box::new(SkFloat32::from_file(file, "player_current_experience")));
+    items.push(Box::new(SkFloat32::from_file(file, "player_level_up")));
+    items.push(Box::new(SkUnknown::from_file(file, "file_time", 8)));
+    items.push(Box::new(SkUint32::from_file(file, "shot_width")));
+    items.push(Box::new(SkUint32::from_file(file, "shot_height")));
+    items.push(Box::new(SkUint16::from_file(file, "compression")));
+    // End Header Section
 
-    let sp = file.stream_position()
+    
+    items.push(Box::new(SkUint16::from_file(file, "compression")));
+    items.push(Box::new(SkUint8::from_file(file, "screenshot_data")));
+    items.push(Box::new(SkUint32::from_file(file, "uncompressed_length")));
+    items.push(Box::new(SkUint32::from_file(file, "compressed_length")));
+    items.push(Box::new(SkUint8::from_file(file, "form_version")));
+    items.push(Box::new(SkUint32::from_file(file, "plugin_info_size")));
+
+    // Start Plugin Info Section
+    let plugin_count = SkUint8::from_file(file, "plugin_count");
+    items.push(Box::new(plugin_count));
+    
+    //    InfoItem::new("plugins", SkType::WString) //TODO: Implement wstring[plugincount]
+    // let meta_state = HashMap::new();
+    // let vector = items.to_vec();
+    // for i in items {
+    //     i.print_value();
+    //     // c.append(i.name.to_string());
+    //     if i.name == "plugin_info_size" {
+    //         //Do Plugin experiment
+    //         InfoItem::new_with_size(file, "plugin1", SkType::Unknown, 100);
+    //     }
+    // }
+
+    let sp = file
+        .stream_position()
         .map_err(|err| tracing::error!("Error: {:?}", err))
-        .ok().unwrap();
+        .ok()
+        .unwrap();
     println!("========================\nposition in file: {:?}", sp);
 
-   
-    v
+    items
 }
 
 fn main() {
@@ -119,10 +138,9 @@ fn main() {
 
     let app_state = AppState {
         file_path: String::from(""),
-        values: Vec::with_capacity(100)
+        values: Vec::with_capacity(150),
     };
     let mut window_options = eframe::NativeOptions::default();
     window_options.initial_window_size = Some(egui::Vec2::new(900., 768.));
     eframe::run_native(Box::new(app_state), window_options);
-
 }
