@@ -63,9 +63,6 @@ pub fn read_u8(br: &mut std::fs::File) -> u8 {
         .map_err(|err| println!("{:?}", err))
         .ok();
 
-    //let mut rdr = Cursor::new(buffer);
-    //rdr.read_u8::<LittleEndian>().unwrap()
-
     buffer[0]
 }
 
