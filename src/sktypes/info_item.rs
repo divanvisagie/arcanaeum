@@ -14,6 +14,7 @@ pub trait PrintableInfoItem {
 
 impl InfoItem {
     pub fn new(file: &mut std::fs::File, name: &str, sk_type: SkType) -> InfoItem {
+        tracing::info!("Parsing {:?} of type {:?}", name, sk_type);
         match sk_type {
             SkType::Char13 => {
                 let str = read_string_of_size(file, 13 as u32);
