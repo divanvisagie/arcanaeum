@@ -2,11 +2,14 @@ use crate::sktypes::{read_string_of_size, read_u8, read_u16, read_u32, read_f32,
 
 use super::{types::SkType, read_unknown};
 
+#[derive(Clone)]
 pub struct InfoItem {
-    name: String,
-    sk_type: SkType,
-    value: String
+    pub name: String,
+    pub sk_type: SkType,
+    pub value: String
 }
+
+
 
 pub trait PrintableInfoItem {
     fn print_value(&self);
