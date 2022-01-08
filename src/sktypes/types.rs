@@ -132,10 +132,13 @@ impl SkTypeReadable for SkUint16 {
 }
 
 // UInt 8
+#[derive(Clone)]
 pub struct SkUint8 {
     name: String,
-    value: u8
+    pub value: u8
 }
+
+
 impl SkUint8 {
     pub fn from_file(file: &mut std::fs::File, name: &str) -> SkUint8 { 
         let size = size_of::<u8>();
@@ -205,11 +208,25 @@ pub struct SkWstringArray {
 
 impl SkWstringArray {
     pub fn from_file(file: &mut std::fs::File, name: &str, item_count: u32) -> SkWstringArray {
-    
+        
+        let count = item_count.clone();
         SkWstringArray {
             name: name.to_string(),
-            value : Vec::with_capacity(item_count.try_into().unwrap())
+            value : Vec::with_capacity(count.try_into().unwrap())
         }
+    }
+}
+impl SkTypeReadable for SkWstringArray {
+    fn get_value_string(&self) -> String {
+        format!("{:?}", self.value)
+    }
+
+    fn get_name(&self) -> String {
+        self.name.to_string()
+    }
+
+    fn get_type(&self) -> String {
+        "wstring[]".to_string()
     }
 }
 

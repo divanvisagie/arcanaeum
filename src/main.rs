@@ -18,6 +18,7 @@ use crate::sktypes::types::SkUint32;
 use crate::sktypes::types::SkUint8;
 use crate::sktypes::types::SkUnknown;
 use crate::sktypes::types::SkWstring;
+use crate::sktypes::types::SkWstringArray;
 
 mod sktypes;
 
@@ -108,7 +109,10 @@ fn read_file(path: String) -> Vec<Box<dyn SkTypeReadable>> {
 
     // Start Plugin Info Section
     let plugin_count = SkUint8::from_file(file, "plugin_count");
-    items.push(Box::new(plugin_count));
+    items.push(Box::new(plugin_count.clone()));
+
+    let size = plugin_count.get_value();
+    items.push(Box::new(SkWstringArray::from_file(file, "plugins", size.into())));
     
     //    InfoItem::new("plugins", SkType::WString) //TODO: Implement wstring[plugincount]
     // let meta_state = HashMap::new();
