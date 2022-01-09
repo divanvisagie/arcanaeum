@@ -1,27 +1,22 @@
-use std::collections::HashMap;
 /**
  * Author: Divan Visagie
  * https://en.uesp.net/wiki/Skyrim_Mod:Save_File_Format
  * https://en.uesp.net/wiki/Skyrim_Mod:File_Format_Conventions
 */
 use std::io::Read;
-use std::io::Seek;
 
 use eframe::egui;
 use eframe::epi;
+use skyrim_savegame::header::PlayerSex;
+use skyrim_savegame::parse_save_file;
 
-use crate::sktypes::plugin_info::PluginInfo;
-use crate::sktypes::skwstringarray::SkWstringArray;
-use crate::sktypes::types::SkChar13;
-use crate::sktypes::types::SkFloat32;
+use crate::sktypes::skchar13::SkChar13;
+use crate::sktypes::skuint32::SkUint32;
 use crate::sktypes::types::SkTypeReadable;
-use crate::sktypes::types::SkUint16;
-use crate::sktypes::types::SkUint32;
-use crate::sktypes::types::SkUint8;
-use crate::sktypes::types::SkUnknown;
-use crate::sktypes::types::SkWstring;
+use crate::sktypes::wstring::SkWstring;
 
 mod sktypes;
+mod mod_search;
 
 struct AppState {
     file_path: String,
@@ -29,7 +24,7 @@ struct AppState {
 }
 
 impl epi::App for AppState {
-    fn update(&mut self, ctx: &egui::CtxRef, frame: &epi::Frame) {
+    fn update(&mut self, ctx: &egui::CtxRef, _frame: &epi::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             if ui.button("Browse to file").clicked() {
                 let res = rfd::FileDialog::new()
@@ -43,22 +38,24 @@ impl epi::App for AppState {
                 self.values = read_file(self.file_path.to_string());
             }
 
-            egui::Grid::new("values")
-                .striped(true)
-                .min_col_width(300.0)
-                .show(ui, |ui| {
-                    ui.label("Name");
-                    ui.label("Value");
-                    ui.label("Type");
-                    ui.end_row();
-
-                    for value_entry in self.values.iter() {
-                        ui.label(value_entry.get_name());
-                        ui.label(value_entry.get_value_string());
-                        ui.label(value_entry.get_type());
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                egui::Grid::new("values")
+                    .striped(true)
+                    .min_col_width(300.0)
+                    .show(ui, |ui| {
+                        ui.label("Name");
+                        ui.label("Value");
+                        ui.label("Type");
                         ui.end_row();
-                    }
-                });
+
+                        for value_entry in self.values.iter() {
+                            ui.label(value_entry.get_name());
+                            ui.label(value_entry.get_value_string());
+                            ui.label(value_entry.get_type());
+                            ui.end_row();
+                        }
+                    });
+            });
 
             ui.hyperlink("https://en.uesp.net/wiki/Skyrim_Mod:Save_File_Format");
         });
@@ -78,58 +75,81 @@ fn read_file(path: String) -> Vec<Box<dyn SkTypeReadable>> {
         .ok()
         .unwrap();
 
-    let file = file.by_ref();
+    let mut buf: Vec<u8> = Vec::new();
+    file.read_to_end(&mut buf).expect("Could not read file!");
+    let parsed = parse_save_file(buf.to_vec());
+
+    tracing::info!("{:?}", parsed.plugin_info);
 
     let mut items: Vec<Box<dyn SkTypeReadable>> = Vec::new();
-    items.push(Box::new(SkChar13::from_file(file, "magic")));
-    items.push(Box::new(SkUint32::from_file(file, "header_size")));
-    // Start Header Section
-    items.push(Box::new(SkUint32::from_file(file, "version")));
-    items.push(Box::new(SkUint32::from_file(file, "save_number")));
-    items.push(Box::new(SkWstring::from_file(file, "player_name")));
-    items.push(Box::new(SkUint32::from_file(file, "player_level")));
-    items.push(Box::new(SkWstring::from_file(file, "player_location")));
-    items.push(Box::new(SkWstring::from_file(file, "game_date")));
-    items.push(Box::new(SkWstring::from_file(file, "player_race_editor")));
-    items.push(Box::new(SkUint16::from_file(file, "player_sex")));
-    items.push(Box::new(SkFloat32::from_file(file, "player_current_experience")));
-    items.push(Box::new(SkFloat32::from_file(file, "player_level_up")));
-    items.push(Box::new(SkUnknown::from_file(file, "file_time", 8)));
-    items.push(Box::new(SkUint32::from_file(file, "shot_width")));
-    items.push(Box::new(SkUint32::from_file(file, "shot_height")));
-    items.push(Box::new(SkUint16::from_file(file, "compression")));
-    // End Header Section
+    // // Start Header Section
+    items.push(Box::new(SkChar13::new("File Type", parsed.magic)));
+    items.push(Box::new(SkUint32::new(
+        "Save Number",
+        parsed.header.save_number,
+    )));
+    items.push(Box::new(SkWstring::new(
+        "Character Name",
+        parsed.header.player_name,
+    )));
+    items.push(Box::new(SkUint32::new(
+        "Character Level",
+        parsed.header.player_level,
+    )));
+    items.push(Box::new(SkWstring::new(
+        "Current Location",
+        parsed.header.player_location,
+    )));
 
-    
-    items.push(Box::new(SkUint16::from_file(file, "compression")));
-    items.push(Box::new(SkUint8::from_file(file, "screenshot_data")));
-    items.push(Box::new(SkUint32::from_file(file, "uncompressed_length")));
-    items.push(Box::new(SkUint32::from_file(file, "compressed_length")));
+    items.push(Box::new(SkWstring::new(
+        "In-game date",
+        parsed.header.game_date,
+    )));
+    items.push(Box::new(SkWstring::new(
+        "Character Race",
+        parsed.header.player_race_editor_id,
+    )));
 
-
-    let form_version = SkUint8::from_file(file, "form_version");
-    items.push(Box::new(form_version.clone()));
-
-    let plugin_info_size = SkUint32::from_file(file, "plugin_info_size");
-    items.push(Box::new(plugin_info_size.clone()));
-
-    // Start Plugin Info Section
-    let plugin_count = SkUint8::from_file(file, "plugin_count");
-    items.push(Box::new(plugin_count.clone()));
-
-    let size = plugin_count.get_value();
-    let plugin_info_size_value = plugin_info_size.get_value();
-    items.push(Box::new(PluginInfo::from_file(file, "plugins", size.into(), plugin_info_size_value)));
-
-
-    if form_version.get_value() >= 78 {
-        // Only for SE save games (and formVersion >= 78?). This contains info about ESL plugins.
-        tracing::info!("Special Edition, should contain Light Plugin Info");
+    match parsed.header.player_sex {
+        PlayerSex::Male => items.push(Box::new(SkWstring::new("Character Sex", "Male".to_string()))),
+        PlayerSex::Female => items.push(Box::new(SkWstring::new("Character Sex", "Female".to_string()))),
     }
+    // // End Header Section
+    items.push(Box::new(SkWstring::new("Plugins",  "".to_string())));
 
-    
-    items.push(Box::new(SkUnknown::from_file(file, "form_id_array_count_offset", 18000000)));
-    
+    for plugin in parsed.plugin_info {
+        items.push(Box::new(SkWstring::new("Plugin",  plugin)));
+    }
+    // items.push(Box::new(SkUint8::from_file(file, "screenshot_data")));
+    // items.push(Box::new(SkUint32::from_file(file, "uncompressed_length")));
+    // items.push(Box::new(SkUint32::from_file(file, "compressed_length")));
+
+    // let form_version = SkUint8::from_file(file, "form_version");
+    // items.push(Box::new(form_version.clone()));
+
+    // let plugin_info_size = SkUint32::from_file(file, "plugin_info_size");
+    // items.push(Box::new(plugin_info_size.clone()));
+
+    // // Start Plugin Info Section
+    // let plugin_count = SkUint8::from_file(file, "plugin_count");
+    // items.push(Box::new(plugin_count.clone()));
+
+    // for n in 1..plugin_count.get_value() {
+    //     tracing::info!("getting wstring for {:?}", n);
+    //     items.push(Box::new(SkWstring::from_file(file, "unnamed")));
+    // }
+
+    // let size = plugin_count.get_value();
+    // let plugin_info_size_value = plugin_info_size.get_value();
+    // items.push(Box::new(PluginInfo::from_file(file, "plugins", size.into(), plugin_info_size_value)));
+
+    // if form_version.get_value() >= 78 {
+    //     // Only for SE save games (and formVersion >= 78?). This contains info about ESL plugins.
+    //     tracing::info!("Special Edition, should contain Light Plugin Info");
+    // }
+
+    // items.push(Box::new(SkUnknown::from_file(file, "form_id_array_count_offset", 18000000)));
+
     //    InfoItem::new("plugins", SkType::WString) //TODO: Implement wstring[plugincount]
     // let meta_state = HashMap::new();
     // let vector = items.to_vec();
@@ -142,12 +162,12 @@ fn read_file(path: String) -> Vec<Box<dyn SkTypeReadable>> {
     //     }
     // }
 
-    let sp = file
-        .stream_position()
-        .map_err(|err| tracing::error!("Error: {:?}", err))
-        .ok()
-        .unwrap();
-    println!("========================\nposition in file: {:?}", sp);
+    // let sp = file
+    //     .stream_position()
+    //     .map_err(|err| tracing::error!("Error: {:?}", err))
+    //     .ok()
+    //     .unwrap();
+    // println!("========================\nposition in file: {:?}", sp);
 
     items
 }
