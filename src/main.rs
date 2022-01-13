@@ -53,7 +53,7 @@ impl epi::App for AppState {
                                             ui.label("Original Game File/DLC");
                                         }
                                         _ => {
-                                            if ui.button("Search").clicked() {
+                                            if ui.button("Search Nexus Mods").clicked() {
                                                 tracing::info!("Search for mod");
                                             };
                                         }
@@ -70,9 +70,9 @@ impl epi::App for AppState {
                             ui.end_row();
                         }
                     });
+                ui.hyperlink("https://en.uesp.net/wiki/Skyrim_Mod:Save_File_Format");
             });
 
-            ui.hyperlink("https://en.uesp.net/wiki/Skyrim_Mod:Save_File_Format");
         });
     }
 
