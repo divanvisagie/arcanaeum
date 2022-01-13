@@ -13,3 +13,4 @@ tracing-subscriber = "0.3.3"
 eframe = "0.16"
 skyrim_savegame = { git = "https://github.com/divanvisagie/skyrim_savegame" }
 urlencoding = "2.1.0"
+rmp = "0.8.10"

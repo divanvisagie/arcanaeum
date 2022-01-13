@@ -1,6 +1,7 @@
+mod vortex_scanner;
+
 use eframe::egui::TextBuffer;
 use urlencoding::encode;
-
 
 
 #[allow(unused)]

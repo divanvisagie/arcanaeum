@@ -6,21 +6,21 @@
 use std::io::Read;
 
 use eframe::egui;
+use eframe::egui::Label;
 use eframe::epi;
 use skyrim_savegame::header::PlayerSex;
 use skyrim_savegame::parse_save_file;
 
-use crate::sktypes::skchar13::SkChar13;
-use crate::sktypes::skuint32::SkUint32;
+use crate::sktypes::skui_value::SkUIValue;
+use crate::sktypes::skui_value::UIValueType;
 use crate::sktypes::types::SkTypeReadable;
-use crate::sktypes::wstring::SkWstring;
 
-mod sktypes;
 mod mod_search;
+mod sktypes;
 
 struct AppState {
     file_path: String,
-    values: Vec<Box<dyn SkTypeReadable>>,
+    values: Vec<SkUIValue>,
 }
 
 impl epi::App for AppState {
@@ -41,17 +41,32 @@ impl epi::App for AppState {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 egui::Grid::new("values")
                     .striped(true)
+                    .min_row_height(22.)
                     .min_col_width(300.0)
                     .show(ui, |ui| {
-                        ui.label("Name");
-                        ui.label("Value");
-                        ui.label("Type");
-                        ui.end_row();
-
                         for value_entry in self.values.iter() {
-                            ui.label(value_entry.get_name());
-                            ui.label(value_entry.get_value_string());
-                            ui.label(value_entry.get_type());
+                            match value_entry.value_type {
+                                UIValueType::Plugin => {
+                                    ui.label(value_entry.get_value_string());
+                                    match value_entry.get_value_string().as_str() {
+                                        "Skyrim.esm" | "Update.esm" | "Dragonborn.esm" | "HearthFires.esm" |"Dawnguard.esm"  => {
+                                            ui.label("Original Game File/DLC");
+                                        }
+                                        _ => {
+                                            if ui.button("Search").clicked() {
+                                                tracing::info!("Search for mod");
+                                            };
+                                        }
+                                    }
+                                }
+                                UIValueType::Header => {
+                                    ui.heading(value_entry.get_name());
+                                }
+                                UIValueType::Value => {
+                                    ui.label(value_entry.get_name());
+                                    ui.label(value_entry.get_value_string());
+                                }
+                            }
                             ui.end_row();
                         }
                     });
@@ -66,7 +81,7 @@ impl epi::App for AppState {
     }
 }
 
-fn read_file(path: String) -> Vec<Box<dyn SkTypeReadable>> {
+fn read_file(path: String) -> Vec<SkUIValue> {
     tracing::info!("Loading file: {:?}", path);
     let mut file = std::fs::File::open(path)
         .map_err(|err| {
@@ -81,93 +96,72 @@ fn read_file(path: String) -> Vec<Box<dyn SkTypeReadable>> {
 
     tracing::info!("{:?}", parsed.plugin_info);
 
-    let mut items: Vec<Box<dyn SkTypeReadable>> = Vec::new();
+    let mut items: Vec<SkUIValue> = Vec::new();
+    items.push(SkUIValue::new(
+        "File Info",
+        "".to_string(),
+        UIValueType::Header,
+    ));
     // // Start Header Section
-    items.push(Box::new(SkChar13::new("File Type", parsed.magic)));
-    items.push(Box::new(SkUint32::new(
+    items.push(SkUIValue::new(
+        "File Type",
+        parsed.magic,
+        UIValueType::Value,
+    ));
+    items.push(SkUIValue::new(
         "Save Number",
-        parsed.header.save_number,
-    )));
-    items.push(Box::new(SkWstring::new(
+        parsed.header.save_number.to_string(),
+        UIValueType::Value,
+    ));
+    items.push(SkUIValue::new(
         "Character Name",
         parsed.header.player_name,
-    )));
-    items.push(Box::new(SkUint32::new(
+        UIValueType::Value,
+    ));
+    items.push(SkUIValue::new(
         "Character Level",
-        parsed.header.player_level,
-    )));
-    items.push(Box::new(SkWstring::new(
+        parsed.header.player_level.to_string(),
+        UIValueType::Value,
+    ));
+    items.push(SkUIValue::new(
         "Current Location",
         parsed.header.player_location,
-    )));
+        UIValueType::Value,
+    ));
 
-    items.push(Box::new(SkWstring::new(
+    items.push(SkUIValue::new(
         "In-game date",
         parsed.header.game_date,
-    )));
-    items.push(Box::new(SkWstring::new(
+        UIValueType::Value,
+    ));
+    items.push(SkUIValue::new(
         "Character Race",
         parsed.header.player_race_editor_id,
-    )));
+        UIValueType::Value,
+    ));
 
     match parsed.header.player_sex {
-        PlayerSex::Male => items.push(Box::new(SkWstring::new("Character Sex", "Male".to_string()))),
-        PlayerSex::Female => items.push(Box::new(SkWstring::new("Character Sex", "Female".to_string()))),
+        PlayerSex::Male => items.push(SkUIValue::new(
+            "Character Sex",
+            "Male".to_string(),
+            UIValueType::Value,
+        )),
+        PlayerSex::Female => items.push(SkUIValue::new(
+            "Character Sex",
+            "Female".to_string(),
+            UIValueType::Value,
+        )),
     }
-    // // End Header Section
-    items.push(Box::new(SkWstring::new("Plugins",  "".to_string())));
+    //End Header Section
+    items.push(SkUIValue::new(
+        "Plugins",
+        "".to_string(),
+        UIValueType::Header,
+    ));
 
     for plugin in parsed.plugin_info {
-        items.push(Box::new(SkWstring::new("Plugin",  plugin)));
+        items.push(SkUIValue::new("Plugin", plugin, UIValueType::Plugin));
     }
-    // items.push(Box::new(SkUint8::from_file(file, "screenshot_data")));
-    // items.push(Box::new(SkUint32::from_file(file, "uncompressed_length")));
-    // items.push(Box::new(SkUint32::from_file(file, "compressed_length")));
-
-    // let form_version = SkUint8::from_file(file, "form_version");
-    // items.push(Box::new(form_version.clone()));
-
-    // let plugin_info_size = SkUint32::from_file(file, "plugin_info_size");
-    // items.push(Box::new(plugin_info_size.clone()));
-
-    // // Start Plugin Info Section
-    // let plugin_count = SkUint8::from_file(file, "plugin_count");
-    // items.push(Box::new(plugin_count.clone()));
-
-    // for n in 1..plugin_count.get_value() {
-    //     tracing::info!("getting wstring for {:?}", n);
-    //     items.push(Box::new(SkWstring::from_file(file, "unnamed")));
-    // }
-
-    // let size = plugin_count.get_value();
-    // let plugin_info_size_value = plugin_info_size.get_value();
-    // items.push(Box::new(PluginInfo::from_file(file, "plugins", size.into(), plugin_info_size_value)));
-
-    // if form_version.get_value() >= 78 {
-    //     // Only for SE save games (and formVersion >= 78?). This contains info about ESL plugins.
-    //     tracing::info!("Special Edition, should contain Light Plugin Info");
-    // }
-
-    // items.push(Box::new(SkUnknown::from_file(file, "form_id_array_count_offset", 18000000)));
-
-    //    InfoItem::new("plugins", SkType::WString) //TODO: Implement wstring[plugincount]
-    // let meta_state = HashMap::new();
-    // let vector = items.to_vec();
-    // for i in items {
-    //     i.print_value();
-    //     // c.append(i.name.to_string());
-    //     if i.name == "plugin_info_size" {
-    //         //Do Plugin experiment
-    //         InfoItem::new_with_size(file, "plugin1", SkType::Unknown, 100);
-    //     }
-    // }
-
-    // let sp = file
-    //     .stream_position()
-    //     .map_err(|err| tracing::error!("Error: {:?}", err))
-    //     .ok()
-    //     .unwrap();
-    // println!("========================\nposition in file: {:?}", sp);
 
     items
 }
@@ -181,6 +175,7 @@ fn main() {
         values: Vec::with_capacity(150),
     };
     let mut window_options = eframe::NativeOptions::default();
-    window_options.initial_window_size = Some(egui::Vec2::new(900., 768.));
+    window_options.initial_window_size = Some(egui::Vec2::new(600., 768.));
+    window_options.decorated = true;
     eframe::run_native(Box::new(app_state), window_options);
 }
