@@ -1,9 +1,7 @@
-# skyrim-save-parser
-Parser for skyrim save files written in Rust
-
+# Arcanaeum
+Arcanaeum will analyse your Skyrim save games to determine which mods you used for that save.
 
 ![Screenshot of Application](docs/screenshot.png)
-
 
 
 # Resources
