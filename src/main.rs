@@ -6,7 +6,6 @@
 use std::io::Read;
 
 use eframe::egui;
-use eframe::egui::Label;
 use eframe::epi;
 use skyrim_savegame::header::PlayerSex;
 use skyrim_savegame::parse_save_file;
@@ -48,15 +47,23 @@ impl epi::App for AppState {
                             match value_entry.value_type {
                                 UIValueType::Plugin => {
                                     ui.label(value_entry.get_value_string());
-                                    match value_entry.get_value_string().as_str() {
-                                        "Skyrim.esm" | "Update.esm" | "Dragonborn.esm" | "HearthFires.esm" |"Dawnguard.esm"  => {
+                                    match value_entry.plugin_type {
+                                        sktypes::skui_value::PluginType::Native => {
                                             ui.label("Original Game File/DLC");
-                                        }
-                                        _ => {
+                                        },
+                                        sktypes::skui_value::PluginType::CreationClub => {
+                                            if ui.button("Search Creation Club").clicked() {
+                                                tracing::info!("Search creation club");
+                                            }
+                                        },
+                                        sktypes::skui_value::PluginType::Mod => {  
                                             if ui.button("Search Nexus Mods").clicked() {
                                                 tracing::info!("Search for mod");
-                                            };
-                                        }
+                                            }
+                                        },
+                                        sktypes::skui_value::PluginType::NotAPlugin => {
+                                            
+                                        },
                                     }
                                 }
                                 UIValueType::Header => {
