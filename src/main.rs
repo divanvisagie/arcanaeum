@@ -29,12 +29,16 @@ impl epi::App for AppState {
                 let res = rfd::FileDialog::new()
                     .add_filter("Elder Scrolls Save", &["ess"])
                     .set_directory("./input")
-                    .pick_file()
-                    .unwrap()
-                    .into_os_string();
+                    .pick_file();
+                
+                match res {
+                    Some(path_buf) => {
+                        self.file_path = String::from(path_buf.to_str().unwrap());
+                        self.values = read_file(self.file_path.to_string());
+                    }
+                    None => tracing::error!("No file selected"),
+                }
 
-                self.file_path = String::from(res.to_str().unwrap());
-                self.values = read_file(self.file_path.to_string());
             }
 
             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -50,20 +54,18 @@ impl epi::App for AppState {
                                     match value_entry.plugin_type {
                                         sktypes::skui_value::PluginType::Native => {
                                             ui.label("Original Game File/DLC");
-                                        },
+                                        }
                                         sktypes::skui_value::PluginType::CreationClub => {
                                             if ui.button("Search Creation Club").clicked() {
                                                 tracing::info!("Search creation club");
                                             }
-                                        },
-                                        sktypes::skui_value::PluginType::Mod => {  
+                                        }
+                                        sktypes::skui_value::PluginType::Mod => {
                                             if ui.button("Search Nexus Mods").clicked() {
                                                 tracing::info!("Search for mod");
                                             }
-                                        },
-                                        sktypes::skui_value::PluginType::NotAPlugin => {
-
-                                        },
+                                        }
+                                        sktypes::skui_value::PluginType::NotAPlugin => {}
                                     }
                                 }
                                 UIValueType::Header => {
@@ -79,7 +81,6 @@ impl epi::App for AppState {
                     });
                 ui.hyperlink("https://en.uesp.net/wiki/Skyrim_Mod:Save_File_Format");
             });
-
         });
     }
 
