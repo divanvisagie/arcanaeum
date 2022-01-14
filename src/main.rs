@@ -62,7 +62,7 @@ impl epi::App for AppState {
                                             }
                                         },
                                         sktypes::skui_value::PluginType::NotAPlugin => {
-                                            
+
                                         },
                                     }
                                 }
@@ -84,7 +84,7 @@ impl epi::App for AppState {
     }
 
     fn name(&self) -> &str {
-        "Skyrim Save Parser"
+        "Arcanaeum"
     }
 }
 
