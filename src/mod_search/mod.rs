@@ -9,7 +9,7 @@ struct Plugin {
     name: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    url: Option<Vec<String>>,
+    url: Option<serde_yaml::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
