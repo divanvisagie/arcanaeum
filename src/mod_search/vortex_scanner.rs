@@ -1,13 +1,16 @@
-use serde_json::Number;
-use serde_yaml::Mapping;
 use std::fs;
 
 use serde::{Deserialize, Serialize};
-use serde_yaml::Sequence;
 
 #[allow(dead_code)]
 pub fn read_vortext_mods() {
     // let path = "C:\\Users\\visag\\AppData\\Roaming\\Vortex\\skyrimse\\mods\\vortex.deployment.msgpack";
+}
+
+#[derive(Clone, Debug)]
+pub struct Plugin {
+    name: String,
+    urls: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -24,25 +27,28 @@ struct MasterListFileType {
 }
 
 #[allow(unused)]
-pub fn get_masterlist_data() -> Vec<PluginFileType> {
+pub fn get_masterlist_data() -> Vec<Plugin> {
     let path = "C:\\Users\\visag\\AppData\\Roaming\\Vortex\\skyrimse\\masterlist\\masterlist.yaml";
     let mut file_contents = fs::read_to_string(path).expect("Could not read file");
     let parsed: MasterListFileType =
         serde_yaml::from_str(file_contents.as_str()).expect("It borked!");
-    parsed.plugins
+    parsed.plugins.iter().map(|x| parse_plugin(&x)).collect()
 }
 
 #[allow(unused)]
-pub fn parse_plugin(plugin_file_type: &PluginFileType) {
-    let plugin_name = &plugin_file_type.name;
+pub fn parse_plugin(plugin_file_type: &PluginFileType) -> Plugin {
+    let name = plugin_file_type.name.clone();
+    let mut urls = Vec::new();
     if let Some(v) = &plugin_file_type.url {
-        match v {
-            serde_yaml::Value::Sequence(s) => {
-                println!("It Be a sequence {:?}", s)
-            },
-            _ => ()
+        if let serde_yaml::Value::Sequence(seq) = v {
+            for item in seq {
+                if let serde_yaml::Value::String(s) = item {
+                    urls.push(s.clone());
+                }
+            }
         }
     }
+    Plugin { name, urls }
 }
 
 #[cfg(test)]
@@ -52,9 +58,6 @@ mod tests {
     #[test]
     fn get_masterlist_data_test() {
         let plugins = get_masterlist_data();
-
-        let p = plugins.get(125).unwrap();
-        parse_plugin(p);
-        // println!("{:?}", plugins);
+        println!("{:?}", plugins);
     }
 }
