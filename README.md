@@ -14,6 +14,9 @@ https://en.uesp.net/wiki/Skyrim_Mod:File_Format_Conventions
 ## Info about matching plugins
 https://www.nexusmods.com/news/13921
 
+## List of skyrim mods can be found here
+https://github.com/loot/skyrimse
+
 
 # Future Plans
 Better name ideas

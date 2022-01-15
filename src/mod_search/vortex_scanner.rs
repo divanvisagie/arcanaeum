@@ -1,17 +1,13 @@
+use serde_json::Number;
+use serde_yaml::Mapping;
 use std::fs;
 
 use serde::{Deserialize, Serialize};
-use serde_yaml::{Value};
+use serde_yaml::Sequence;
 
 #[allow(dead_code)]
 pub fn read_vortext_mods() {
     // let path = "C:\\Users\\visag\\AppData\\Roaming\\Vortex\\skyrimse\\mods\\vortex.deployment.msgpack";
-}
-
-#[derive(Debug)]
-pub struct Plugin {
-   name: String,
-   urls: Vec<String>
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -41,9 +37,11 @@ pub fn parse_plugin(plugin_file_type: &PluginFileType) {
     let plugin_name = &plugin_file_type.name;
     if let Some(v) = &plugin_file_type.url {
         match v {
-            Value::Sequence(vs) => println!("Seq >> {:?}", vs),
-            _ => (),
-        };
+            serde_yaml::Value::Sequence(s) => {
+                println!("It Be a sequence {:?}", s)
+            },
+            _ => ()
+        }
     }
 }
 
@@ -57,6 +55,6 @@ mod tests {
 
         let p = plugins.get(125).unwrap();
         parse_plugin(p);
-        // println!("{:?}",plugins);
+        // println!("{:?}", plugins);
     }
 }
