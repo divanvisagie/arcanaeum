@@ -71,7 +71,7 @@ impl epi::App for AppState {
                                 UIValueType::Header => {
                                     ui.heading(value_entry.get_name());
                                 }
-                                UIValueType::Value => {
+                                UIValueType::Value | UIValueType::U32(_) => {
                                     ui.label(value_entry.get_name());
                                     ui.label(value_entry.get_value_string());
                                 }
@@ -119,7 +119,7 @@ fn read_file(path: String) -> Vec<SkUIValue> {
     items.push(SkUIValue::new(
         "Save Number",
         parsed.header.save_number.to_string(),
-        UIValueType::Value,
+        UIValueType::U32(parsed.header.save_number),
     ));
     items.push(SkUIValue::new(
         "Character Name",
