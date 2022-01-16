@@ -1,9 +1,8 @@
-mod vortex_scanner;
+pub mod vortex_scanner;
 use std::{collections::{HashMap}};
 use eframe::egui::TextBuffer;
 
 use urlencoding::encode;
-
 
 fn get_url_for_search(term: &str) -> String {
     let encoded = encode(term.as_str()).to_string();

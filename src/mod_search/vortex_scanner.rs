@@ -9,8 +9,8 @@ pub fn read_vortext_mods() {
 
 #[derive(Clone, Debug)]
 pub struct Plugin {
-    name: String,
-    urls: Vec<String>,
+    pub name: String,
+    pub urls: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

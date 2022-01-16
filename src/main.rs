@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 /**
  * Author: Divan Visagie
  * https://en.uesp.net/wiki/Skyrim_Mod:Save_File_Format
@@ -7,6 +8,8 @@ use std::io::Read;
 
 use eframe::egui;
 use eframe::epi;
+use mod_search::vortex_scanner::Plugin;
+use mod_search::vortex_scanner::get_masterlist_data;
 use skyrim_savegame::header::PlayerSex;
 use skyrim_savegame::parse_save_file;
 
@@ -20,6 +23,7 @@ mod sktypes;
 struct AppState {
     file_path: String,
     values: Vec<SkUIValue>,
+    mod_map: HashMap<String, Plugin>
 }
 
 impl epi::App for AppState {
@@ -34,7 +38,7 @@ impl epi::App for AppState {
                 match res {
                     Some(path_buf) => {
                         self.file_path = String::from(path_buf.to_str().unwrap());
-                        self.values = read_file(self.file_path.to_string());
+                        self.values = load_save_file(self.file_path.to_string());
                     }
                     None => tracing::error!("No file selected"),
                 }
@@ -61,12 +65,26 @@ impl epi::App for AppState {
                                             }
                                         }
                                         sktypes::skui_value::PluginType::Mod => {
-                                            if ui.button("Search Nexus Mods").clicked() {
-                                                tracing::info!("Search for mod");
+                                            
+                                            let key = &value_entry.get_value_string();
+                                            if self.mod_map.contains_key(key) {
+                                                let value =self.mod_map.get(key).unwrap();
+
+                                                egui::Grid::new(key.as_str()).show(ui, |ui| {
+                                                    for l in value.urls.clone() {
+                                                        ui.hyperlink(l.as_str());
+                                                        ui.end_row();
+                                                    }
+                                                });
+                                            } else {
+                                                if ui.button("Search Nexus Mods").clicked() {
+                                                    tracing::info!("Search for mod");
+                                                }
                                             }
                                         }
                                         sktypes::skui_value::PluginType::NotAPlugin => {}
                                     }
+
                                 }
                                 UIValueType::Header => {
                                     ui.heading(value_entry.get_name());
@@ -89,7 +107,16 @@ impl epi::App for AppState {
     }
 }
 
-fn read_file(path: String) -> Vec<SkUIValue> {
+fn load_mod_map() -> HashMap<String, Plugin> {
+    let mut map = HashMap::new();
+    let plugins = get_masterlist_data();
+    for p in plugins {
+        map.insert(p.name.clone(), p);
+    }
+    map
+}
+
+fn load_save_file(path: String) -> Vec<SkUIValue> {
     tracing::info!("Loading file: {:?}", path);
     let mut file = std::fs::File::open(path)
         .map_err(|err| {
@@ -181,9 +208,10 @@ fn main() {
     let app_state = AppState {
         file_path: String::from(""),
         values: Vec::with_capacity(150),
+        mod_map: load_mod_map()
     };
     let mut window_options = eframe::NativeOptions::default();
-    window_options.initial_window_size = Some(egui::Vec2::new(600., 768.));
+    window_options.initial_window_size = Some(egui::Vec2::new(800., 768.));
     window_options.decorated = true;
     eframe::run_native(Box::new(app_state), window_options);
 }
