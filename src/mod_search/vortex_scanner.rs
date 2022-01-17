@@ -31,7 +31,7 @@ pub fn get_masterlist_data() -> Vec<Plugin> {
     path_buf.push("masterlist.yaml");
     println!("Looking for vortex at: {:?}", path_buf);
 
-    let mut file_contents = fs::read_to_string(path_buf).expect("Could not read file");
+    let file_contents: String = fs::read_to_string(path_buf).expect("Could not read file");
     let parsed: MasterListFileType =
         serde_yaml::from_str(file_contents.as_str()).expect("It borked!");
     parsed.plugins.iter().map(|x| parse_plugin(&x)).collect()

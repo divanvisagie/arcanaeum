@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::io::Read;
 
 use eframe::egui;
+use eframe::egui::Color32;
 use eframe::epi;
 use mod_search::vortex_scanner::get_installed_from_all_profiles;
 use mod_search::vortex_scanner::get_masterlist_data;
@@ -64,9 +65,11 @@ impl epi::App for AppState {
                                         sktypes::skui_value::PluginType::Mod => {
                                             let key = &value_entry.get_value_string();
                                             if self.installed.contains(key) {
-                                                ui.label("Installed");
-                                            }
-                                            if self.mod_map.contains_key(key) {
+                                                ui.colored_label(
+                                                    Color32::from_rgb(50, 200, 50),
+                                                    "Installed",
+                                                );
+                                            } else if self.mod_map.contains_key(key) {
                                                 let value = self.mod_map.get(key).unwrap();
 
                                                 egui::Grid::new(key.as_str()).show(ui, |ui| {
@@ -76,9 +79,10 @@ impl epi::App for AppState {
                                                     }
                                                 });
                                             } else {
-                                                if ui.button("Search Nexus Mods").clicked() {
-                                                    tracing::info!("Search for mod");
-                                                }
+                                                ui.colored_label(
+                                                    Color32::from_rgb(200, 50, 50),
+                                                    "Not Found",
+                                                );
                                             }
                                         }
                                         sktypes::skui_value::PluginType::NotAPlugin => {}
@@ -95,7 +99,6 @@ impl epi::App for AppState {
                             ui.end_row();
                         }
                     });
-                ui.hyperlink("https://en.uesp.net/wiki/Skyrim_Mod:Save_File_Format");
             });
         });
     }
@@ -215,7 +218,7 @@ fn main() {
         file_path: String::from(""),
         values: Vec::with_capacity(150),
         mod_map: load_mod_map(),
-        installed: load_installed()
+        installed: load_installed(),
     };
     let mut window_options = eframe::NativeOptions::default();
     window_options.initial_window_size = Some(egui::Vec2::new(800., 768.));
