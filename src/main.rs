@@ -58,9 +58,7 @@ impl epi::App for AppState {
                                             ui.label("Original Game File/DLC");
                                         }
                                         sktypes::skui_value::PluginType::CreationClub => {
-                                            if ui.button("Search Creation Club").clicked() {
-                                                tracing::info!("Search creation club");
-                                            }
+                                            ui.label("Creation Club Mod");
                                         }
                                         sktypes::skui_value::PluginType::Mod => {
                                             let key = &value_entry.get_value_string();
