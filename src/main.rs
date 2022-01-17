@@ -1,15 +1,12 @@
 use std::collections::HashMap;
-/**
- * Author: Divan Visagie
- * https://en.uesp.net/wiki/Skyrim_Mod:Save_File_Format
- * https://en.uesp.net/wiki/Skyrim_Mod:File_Format_Conventions
-*/
+use std::collections::HashSet;
 use std::io::Read;
 
 use eframe::egui;
 use eframe::epi;
-use mod_search::vortex_scanner::Plugin;
+use mod_search::vortex_scanner::get_installed_from_all_profiles;
 use mod_search::vortex_scanner::get_masterlist_data;
+use mod_search::vortex_scanner::Plugin;
 use skyrim_savegame::header::PlayerSex;
 use skyrim_savegame::parse_save_file;
 
@@ -23,7 +20,8 @@ mod sktypes;
 struct AppState {
     file_path: String,
     values: Vec<SkUIValue>,
-    mod_map: HashMap<String, Plugin>
+    mod_map: HashMap<String, Plugin>,
+    installed: HashSet<String>,
 }
 
 impl epi::App for AppState {
@@ -34,7 +32,7 @@ impl epi::App for AppState {
                     .add_filter("Elder Scrolls Save", &["ess"])
                     .set_directory("./input")
                     .pick_file();
-                
+
                 match res {
                     Some(path_buf) => {
                         self.file_path = String::from(path_buf.to_str().unwrap());
@@ -42,7 +40,6 @@ impl epi::App for AppState {
                     }
                     None => tracing::error!("No file selected"),
                 }
-
             }
 
             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -65,10 +62,12 @@ impl epi::App for AppState {
                                             }
                                         }
                                         sktypes::skui_value::PluginType::Mod => {
-                                            
                                             let key = &value_entry.get_value_string();
+                                            if self.installed.contains(key) {
+                                                ui.label("Installed");
+                                            }
                                             if self.mod_map.contains_key(key) {
-                                                let value =self.mod_map.get(key).unwrap();
+                                                let value = self.mod_map.get(key).unwrap();
 
                                                 egui::Grid::new(key.as_str()).show(ui, |ui| {
                                                     for l in value.urls.clone() {
@@ -84,7 +83,6 @@ impl epi::App for AppState {
                                         }
                                         sktypes::skui_value::PluginType::NotAPlugin => {}
                                     }
-
                                 }
                                 UIValueType::Header => {
                                     ui.heading(value_entry.get_name());
@@ -114,6 +112,14 @@ fn load_mod_map() -> HashMap<String, Plugin> {
         map.insert(p.name.clone(), p);
     }
     map
+}
+
+fn load_installed() -> HashSet<String> {
+    let mut installed = HashSet::new();
+    for p in get_installed_from_all_profiles() {
+        installed.insert(p);
+    }
+    installed
 }
 
 fn load_save_file(path: String) -> Vec<SkUIValue> {
@@ -208,7 +214,8 @@ fn main() {
     let app_state = AppState {
         file_path: String::from(""),
         values: Vec::with_capacity(150),
-        mod_map: load_mod_map()
+        mod_map: load_mod_map(),
+        installed: load_installed()
     };
     let mut window_options = eframe::NativeOptions::default();
     window_options.initial_window_size = Some(egui::Vec2::new(800., 768.));
