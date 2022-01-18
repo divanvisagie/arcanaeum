@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::io::Error;
+use std::io::ErrorKind;
 use std::io::Read;
+use std::panic;
 
 use eframe::egui;
 use eframe::egui::Color32;
@@ -23,6 +26,7 @@ struct AppState {
     values: Vec<SkUIValue>,
     mod_map: HashMap<String, Plugin>,
     installed: HashSet<String>,
+    error: Option<String>,
 }
 
 impl epi::App for AppState {
@@ -37,12 +41,23 @@ impl epi::App for AppState {
                 match res {
                     Some(path_buf) => {
                         self.file_path = String::from(path_buf.to_str().unwrap());
-                        self.values = load_save_file(self.file_path.to_string());
+                        match load_save_file(self.file_path.to_string()) {
+                            Ok(values) => {
+                                self.values = values;
+                                self.error = None;
+                            },
+                            Err(e) => {
+                                 self.error = Some(e.to_string());
+                                 self.values = Vec::new();
+                            },
+                        };
                     }
                     None => tracing::error!("No file selected"),
                 }
             }
-
+            if let Some(e) = &self.error {
+                ui.colored_label(Color32::from_rgb(200, 50, 50), e);
+            }                                                                    
             egui::ScrollArea::vertical().show(ui, |ui| {
                 egui::Grid::new("values")
                     .striped(true)
@@ -123,20 +138,28 @@ fn load_installed() -> HashSet<String> {
     installed
 }
 
-fn load_save_file(path: String) -> Vec<SkUIValue> {
+fn load_save_file(path: String) -> Result<Vec<SkUIValue>, Error> {
     tracing::info!("Loading file: {:?}", path);
-    let mut file = std::fs::File::open(path)
-        .map_err(|err| {
-            println!("Error {:?}", err);
-        })
-        .ok()
-        .unwrap();
+    let mut file = std::fs::File::open(path)?;
 
     let mut buf: Vec<u8> = Vec::new();
-    file.read_to_end(&mut buf).expect("Could not read file!");
-    let parsed = parse_save_file(buf.to_vec());
+    file.read_to_end(&mut buf)?;
 
-    tracing::info!("{:?}", parsed.plugin_info);
+    let result = panic::catch_unwind(move || {
+        let parsed = parse_save_file(buf.to_vec());
+        tracing::info!("{:?}", parsed.plugin_info);
+        parsed
+    });
+
+    if let Err(e) = result {
+        tracing::error!("Error parsing the selected file: {:?}", e);
+        return Err(Error::new(
+            ErrorKind::InvalidData,
+            format!("Error Parsing Save File"),
+        ));
+    }
+
+    let parsed = result.ok().unwrap();
 
     let mut items: Vec<SkUIValue> = Vec::new();
     items.push(SkUIValue::new(
@@ -205,7 +228,7 @@ fn load_save_file(path: String) -> Vec<SkUIValue> {
         items.push(SkUIValue::new("Plugin", plugin, UIValueType::Plugin));
     }
 
-    items
+    Ok(items)
 }
 
 fn main() {
@@ -217,6 +240,7 @@ fn main() {
         values: Vec::with_capacity(150),
         mod_map: load_mod_map(),
         installed: load_installed(),
+        error: None,
     };
     let mut window_options = eframe::NativeOptions::default();
     window_options.initial_window_size = Some(egui::Vec2::new(800., 768.));
