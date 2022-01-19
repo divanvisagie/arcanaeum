@@ -1,4 +1,4 @@
-use std::{env, fs, path::PathBuf};
+use std::{env, fs, io::Error, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -21,7 +21,7 @@ struct MasterListFileType {
     plugins: Vec<PluginFileType>,
 }
 
-pub fn get_masterlist_data() -> Vec<Plugin> {
+pub fn get_masterlist_data() -> Result<Vec<Plugin>, Error> {
     let app_data_path = env::var("APPDATA").unwrap();
     let mut path_buf = PathBuf::new();
     path_buf.push(app_data_path);
@@ -31,13 +31,14 @@ pub fn get_masterlist_data() -> Vec<Plugin> {
     path_buf.push("masterlist.yaml");
     println!("Looking for vortex at: {:?}", path_buf);
 
-    let file_contents: String = fs::read_to_string(path_buf).expect("Could not read file");
+    let file_contents = fs::read_to_string(path_buf)?;
     let parsed: MasterListFileType =
         serde_yaml::from_str(file_contents.as_str()).expect("It borked!");
-    parsed.plugins.iter().map(|x| parse_plugin(&x)).collect()
+    let plugin_master_list = parsed.plugins.iter().map(|x| parse_plugin(&x)).collect();
+    Ok(plugin_master_list)
 }
 
-pub fn get_profile_data(profile_name: &str) -> Vec<String> {
+pub fn get_profile_data(profile_name: &str) -> Result<Vec<String>, Error> {
     let app_data_path = env::var("APPDATA").unwrap();
     let mut path_buf = PathBuf::new();
     path_buf.push(app_data_path);
@@ -47,8 +48,8 @@ pub fn get_profile_data(profile_name: &str) -> Vec<String> {
     path_buf.push(profile_name);
     path_buf.push("plugins.txt");
 
-    let file_contents = fs::read_to_string(path_buf).expect("Could not read file");
-    let s = file_contents
+    let file_contents = fs::read_to_string(path_buf)?;
+    let plugins_in_profile = file_contents
         .lines()
         .map(|p| p.to_string())
         .filter(|p| p.starts_with("*"))
@@ -59,10 +60,10 @@ pub fn get_profile_data(profile_name: &str) -> Vec<String> {
         })
         .into_iter()
         .collect();
-    s
+    Ok(plugins_in_profile)
 }
 
-pub fn get_profiles() -> Vec<String> {
+pub fn get_profiles() -> Result<Vec<String>, Error> {
     let app_data_path = env::var("APPDATA").unwrap();
     let mut path_buf = PathBuf::new();
     path_buf.push(app_data_path);
@@ -70,20 +71,30 @@ pub fn get_profiles() -> Vec<String> {
     path_buf.push("skyrimse");
     path_buf.push("profiles");
 
-    let items = fs::read_dir(path_buf)
-        .unwrap()
+    let read = fs::read_dir(path_buf)?;
+
+    let items = read
         .map(|i| i.unwrap().file_name())
         .map(|i| i.to_str().unwrap().to_string())
         .collect();
-    items
+    Ok(items)
 }
 
 pub fn get_installed_from_all_profiles() -> Vec<String> {
     let mut all = Vec::new();
-    let profiles = get_profiles();
-    for prof in profiles {
-        let p = get_profile_data(&prof);
-        all.extend(p);
+    if let Ok(profiles) = get_profiles() {
+        for prof in profiles {
+            match get_profile_data(&prof) {
+                Ok(plugins_in_profile) => {
+                    all.extend(plugins_in_profile);
+                }
+                _ => (
+                    tracing::error!("Cannot read plugins from profile: {prof}")
+                ),
+            }
+        }
+    } else {
+        tracing::error!("Could not find any vortex profiles.");
     }
     all
 }

@@ -123,9 +123,10 @@ impl epi::App for AppState {
 
 fn load_mod_map() -> HashMap<String, Plugin> {
     let mut map = HashMap::new();
-    let plugins = get_masterlist_data();
-    for p in plugins {
-        map.insert(p.name.clone(), p);
+    if let Ok(plugins) = get_masterlist_data() {
+        for plugin in plugins {
+            map.insert(plugin.name.clone(), plugin);
+        }
     }
     map
 }
