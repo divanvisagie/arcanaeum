@@ -7,21 +7,23 @@ pub struct SaveInfo {
     pub magic_string: String,
 }
 
-fn read_string(buffer: Vec<u8>, start: usize, end: usize) -> String {
+fn read_string(buffer: Vec<u8>, start: usize, end: usize) -> (String, usize) {
     let chunk = &buffer[start..end];
-    match std::str::from_utf8(chunk) {
+    let s = match std::str::from_utf8(chunk) {
         Ok(s) => s.to_string(),
         Err(_) => {
             tracing::error!("Failed to read string from {start} to {end}");
             "".to_string()
         }
-    }
+    };
+    (s, end)
 }
 
 pub fn parse(buf: Vec<u8>) -> SaveInfo {
     let cursor = 0;
-    let m = read_string(buf, cursor, 13);
-    SaveInfo { magic_string: m }
+    let (magic_string, cursor) = read_string(buf, cursor, 13);
+    println!("Cursor position at {:?}", cursor);
+    SaveInfo { magic_string }
 }
 
 #[cfg(test)]
