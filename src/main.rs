@@ -14,11 +14,13 @@ use mod_search::vortex_scanner::Plugin;
 use skyrim_savegame::header::PlayerSex;
 use skyrim_savegame::parse_save_file;
 
+// use crate::parser::parse;
 use crate::sktypes::skui_value::SkUIValue;
 use crate::sktypes::skui_value::UIValueType;
 use crate::sktypes::types::SkTypeReadable;
 
 mod mod_search;
+mod parser;
 mod sktypes;
 
 struct AppState {
@@ -45,11 +47,11 @@ impl epi::App for AppState {
                             Ok(values) => {
                                 self.values = values;
                                 self.error = None;
-                            },
+                            }
                             Err(e) => {
-                                 self.error = Some(e.to_string());
-                                 self.values = Vec::new();
-                            },
+                                self.error = Some(e.to_string());
+                                self.values = Vec::new();
+                            }
                         };
                     }
                     None => tracing::error!("No file selected"),
@@ -57,7 +59,7 @@ impl epi::App for AppState {
             }
             if let Some(e) = &self.error {
                 ui.colored_label(Color32::from_rgb(200, 50, 50), e);
-            }                                                                    
+            }
             egui::ScrollArea::vertical().show(ui, |ui| {
                 egui::Grid::new("values")
                     .striped(true)
