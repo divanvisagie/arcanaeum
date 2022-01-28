@@ -68,3 +68,9 @@ pub fn read_w_string(buf: &[u8], start: usize) -> (String, usize) {
     };
     (str, end)
 }
+
+pub fn read_bytes(buf: &[u8], start: usize, bytes: usize) -> (&[u8], usize) {
+    let end = start + bytes;
+    let b = &buf[start..end];
+    (b, end)
+}

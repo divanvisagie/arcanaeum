@@ -3,7 +3,7 @@
 
 use crate::parser::{
     header::read_header,
-    utils::{read_charray, read_u32},
+    utils::{read_bytes, read_charray, read_u32},
 };
 
 use self::header::Header;
@@ -16,6 +16,9 @@ pub struct SaveInfo {
     pub magic_string: String,
     pub header_size: u32,
     pub header: Header,
+    pub screenshot_data: Vec<u8>,
+    pub uncompressed_length: u32,
+    pub compressed_length: u32,
 }
 
 pub fn parse(buf: Vec<u8>) -> SaveInfo {
@@ -24,11 +27,20 @@ pub fn parse(buf: Vec<u8>) -> SaveInfo {
     let (magic_string, cursor) = read_charray(buf, cursor, 13);
     let (header_size, cursor) = read_u32(buf, cursor);
     let (header, cursor) = read_header(buf, cursor);
+
+    let screenshot_data_size = (4 * header.screenshot_width * header.screenshot_height) as usize;
+    let (screenshot_data, cursor) = read_bytes(buf, cursor, screenshot_data_size);
+    let (uncompressed_length, cursor) = read_u32(buf, cursor);
+    let (compressed_length, cursor) = read_u32(buf, cursor);
+
     println!("Cursor position at {:?}", cursor);
     SaveInfo {
         magic_string,
         header_size,
         header,
+        screenshot_data: screenshot_data.to_vec(),
+        uncompressed_length,
+        compressed_length,
     }
 }
 
@@ -65,7 +77,7 @@ mod test {
     fn test_parse_header() {
         let buf = get_file_buffer();
         let save_info = parse(buf);
-        println!("{:?}", save_info);
+        println!("{:?}", save_info.uncompressed_length);
         assert_eq!(save_info.header.version, 12);
         assert_eq!(save_info.header.save_number, 3);
         assert_eq!(save_info.header.player_name, "Aluna Messana");
