@@ -10,6 +10,21 @@ pub fn read_charray(buf: &[u8], start: usize, end: usize) -> (String, usize) {
     (s, end)
 }
 
+pub fn read_f32(buf: &[u8], start: usize) -> (f32, usize) {
+    let chunk = &buf[start..start + 4];
+    let n = match <[u8; 4]>::try_from(chunk) {
+        Ok(bytes) => {
+            let n = f32::from_le_bytes(bytes);
+            n
+        }
+        Err(_) => {
+            tracing::error!("Could not parse u32 from chunk at {start}");
+            0.0
+        }
+    };
+    (n, start + 4)
+}
+
 pub fn read_u32(buf: &[u8], start: usize) -> (u32, usize) {
     let chunk = &buf[start..start + 4];
     let n = match <[u8; 4]>::try_from(chunk) {

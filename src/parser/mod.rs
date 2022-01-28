@@ -65,7 +65,7 @@ mod test {
     fn test_parse_header() {
         let buf = get_file_buffer();
         let save_info = parse(buf);
-        println!("{:?}", save_info.header);
+        println!("{:?}", save_info);
         assert_eq!(save_info.header.version, 12);
         assert_eq!(save_info.header.save_number, 3);
         assert_eq!(save_info.header.player_name, "Aluna Messana");
