@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::Error;
-use std::io::ErrorKind;
 use std::io::Read;
-use std::panic;
 
 use eframe::egui;
 
