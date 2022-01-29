@@ -63,6 +63,7 @@ pub struct Header {
      *  If compression is present, everything after the compression lengths is compressed.
      */
     pub compression_type: u16,
+    pub is_se: bool,
 }
 
 pub fn read_header(buf: &[u8], start: usize) -> (Header, usize) {
@@ -107,6 +108,7 @@ pub fn read_header(buf: &[u8], start: usize) -> (Header, usize) {
         screenshot_width,
         screenshot_height,
         compression_type,
+        is_se,
     };
     (header, cursor)
 }

@@ -2,8 +2,6 @@
 
 Arcanaeum will analyse your Skyrim save games to determine which mods you used for that save.
 
-**Currently only supports Skyrim Special Edition**
-
 ![Screenshot of Application](docs/screenshot.png)
 
 ## Resources

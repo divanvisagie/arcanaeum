@@ -90,3 +90,17 @@ pub fn read_bytes(buf: &[u8], start: usize, bytes: usize) -> (&[u8], usize) {
     let b = &buf[start..end];
     (b, end)
 }
+
+pub fn se_only<T>(
+    f: &dyn Fn(&[u8], usize) -> (T, usize),
+    is_se: bool,
+    buf: &[u8],
+    cursor: usize,
+    default_value: T,
+) -> (T, usize) {
+    if is_se {
+        f(buf, cursor)
+    } else {
+        (default_value, cursor)
+    }
+}

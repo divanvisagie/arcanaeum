@@ -4,7 +4,7 @@ use std::fmt::{self, Formatter};
 use crate::parser::{
     header::read_header,
     plugin_info::read_plugin_info,
-    utils::{read_bytes, read_charray, read_u32, read_u8},
+    utils::{read_bytes, read_charray, read_u32, read_u8, se_only},
 };
 
 use self::{header::Header, plugin_info::PluginInfo};
@@ -81,6 +81,12 @@ fn get_decompressed_buffer(
     buf
 }
 
+pub fn get_screenshot_data_size(header: &Header) -> usize {
+    let multiplier = if header.is_se { 4 } else { 3 };
+    let sds = (multiplier * header.screenshot_width * header.screenshot_height) as usize;
+    sds
+}
+
 pub fn parse(buf: Vec<u8>) -> SaveInfo {
     let buf = buf.as_slice();
     let cursor = 0;
@@ -88,10 +94,11 @@ pub fn parse(buf: Vec<u8>) -> SaveInfo {
     let (header_size, cursor) = read_u32(buf, cursor);
     let (header, cursor) = read_header(buf, cursor);
 
-    let screenshot_data_size = (4 * header.screenshot_width * header.screenshot_height) as usize;
+    let screenshot_data_size = get_screenshot_data_size(&header);
     let (screenshot_data, cursor) = read_bytes(buf, cursor, screenshot_data_size);
-    let (uncompressed_length, cursor) = read_u32(buf, cursor);
-    let (compressed_length, cursor) = read_u32(buf, cursor);
+
+    let (uncompressed_length, cursor) = se_only(&read_u32, header.is_se, buf, cursor, 0);
+    let (compressed_length, cursor) = se_only(&read_u32, header.is_se, buf, cursor, 0);
 
     tracing::info!("compressed: {compressed_length} uncompressed: {uncompressed_length}");
 
