@@ -1,0 +1,45 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'skyrim-saves'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=skyrim-saves",
+                    "--package=skyrim-saves"
+                ],
+                "filter": {
+                    "name": "skyrim-saves",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'skyrim-saves'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=skyrim-saves",
+                    "--package=skyrim-saves"
+                ],
+                "filter": {
+                    "name": "skyrim-saves",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
