@@ -21,12 +21,12 @@ struct MasterListFileType {
     plugins: Vec<PluginFileType>,
 }
 
-pub fn get_masterlist_data() -> Result<Vec<Plugin>, Error> {
+pub fn get_masterlist_data(game: &str) -> Result<Vec<Plugin>, Error> {
     let app_data_path = env::var("APPDATA").unwrap();
     let mut path_buf = PathBuf::new();
     path_buf.push(app_data_path);
     path_buf.push("Vortex");
-    path_buf.push("skyrimse");
+    path_buf.push(game);
     path_buf.push("masterlist");
     path_buf.push("masterlist.yaml");
     println!("Looking for vortex at: {:?}", path_buf);
@@ -63,12 +63,12 @@ pub fn get_profile_data(profile_name: &str) -> Result<Vec<String>, Error> {
     Ok(plugins_in_profile)
 }
 
-pub fn get_profiles() -> Result<Vec<String>, Error> {
+pub fn get_profiles(game: &str) -> Result<Vec<String>, Error> {
     let app_data_path = env::var("APPDATA").unwrap();
     let mut path_buf = PathBuf::new();
     path_buf.push(app_data_path);
     path_buf.push("Vortex");
-    path_buf.push("skyrimse");
+    path_buf.push(game);
     path_buf.push("profiles");
 
     let read = fs::read_dir(path_buf)?;
@@ -80,17 +80,15 @@ pub fn get_profiles() -> Result<Vec<String>, Error> {
     Ok(items)
 }
 
-pub fn get_installed_from_all_profiles() -> Vec<String> {
+pub fn get_installed_from_all_profiles(game: &str) -> Vec<String> {
     let mut all = Vec::new();
-    if let Ok(profiles) = get_profiles() {
+    if let Ok(profiles) = get_profiles(game) {
         for prof in profiles {
             match get_profile_data(&prof) {
                 Ok(plugins_in_profile) => {
                     all.extend(plugins_in_profile);
                 }
-                _ => (
-                    tracing::error!("Cannot read plugins from profile: {prof}")
-                ),
+                _ => (tracing::error!("Cannot read plugins from profile: {prof}")),
             }
         }
     } else {
@@ -120,13 +118,13 @@ mod tests {
 
     #[test]
     fn get_masterlist_data_test() {
-        let plugins = get_masterlist_data();
+        let plugins = get_masterlist_data("skyrimse");
         println!("{:?}", plugins);
     }
 
     #[test]
     fn get_profile_data_test() {
-        let p = get_installed_from_all_profiles();
+        let p = get_installed_from_all_profiles("skyrimse");
         println!("String interpolation yay {:?}", p)
     }
 }

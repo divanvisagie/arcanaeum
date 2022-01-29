@@ -5,7 +5,7 @@ use eframe::egui::Color32;
 use eframe::epi;
 
 use crate::{
-    load_save_file,
+    load_installed, load_mod_map, load_save_file,
     mod_search::vortex_scanner::Plugin,
     sktypes::{
         self,
@@ -36,7 +36,15 @@ impl epi::App for AppState {
                         self.file_path = String::from(path_buf.to_str().unwrap());
                         match load_save_file(self.file_path.to_string()) {
                             Ok(values) => {
-                                self.values = values;
+                                let (dts, is_se) = values;
+                                if is_se {
+                                    self.mod_map = load_mod_map("skyrimse");
+                                    self.installed = load_installed("skyrimse")
+                                } else {
+                                    self.mod_map = load_mod_map("skyrim");
+                                    self.installed = load_installed("skyrim");
+                                }
+                                self.values = dts;
                                 self.error = None;
                             }
                             Err(e) => {

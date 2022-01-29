@@ -19,9 +19,9 @@ mod mod_search;
 mod parser;
 mod sktypes;
 
-fn load_mod_map() -> HashMap<String, Plugin> {
+fn load_mod_map(game: &str) -> HashMap<String, Plugin> {
     let mut map = HashMap::new();
-    if let Ok(plugins) = get_masterlist_data() {
+    if let Ok(plugins) = get_masterlist_data(game) {
         for plugin in plugins {
             map.insert(plugin.name.clone(), plugin);
         }
@@ -29,15 +29,15 @@ fn load_mod_map() -> HashMap<String, Plugin> {
     map
 }
 
-fn load_installed() -> HashSet<String> {
+fn load_installed(game: &str) -> HashSet<String> {
     let mut installed = HashSet::new();
-    for p in get_installed_from_all_profiles() {
+    for p in get_installed_from_all_profiles(game) {
         installed.insert(p);
     }
     installed
 }
 
-fn load_save_file(path: String) -> Result<Vec<SkUIValue>, Error> {
+fn load_save_file(path: String) -> Result<(Vec<SkUIValue>, bool), Error> {
     tracing::info!("Loading file: {:?}", path);
     let mut file = std::fs::File::open(path)?;
 
@@ -107,7 +107,7 @@ fn load_save_file(path: String) -> Result<Vec<SkUIValue>, Error> {
         items.push(SkUIValue::new("Plugin", plugin, UIValueType::Plugin));
     }
 
-    Ok(items)
+    Ok((items, parsed.header.is_se))
 }
 
 fn main() {
@@ -117,8 +117,8 @@ fn main() {
     let app_state = AppState {
         file_path: String::from(""),
         values: Vec::with_capacity(150),
-        mod_map: load_mod_map(),
-        installed: load_installed(),
+        mod_map: HashMap::new(),
+        installed: HashSet::new(),
         error: None,
     };
     let mut window_options = eframe::NativeOptions::default();
