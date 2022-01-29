@@ -48,11 +48,27 @@ pub fn read_u16(buf: &[u8], start: usize) -> (u16, usize) {
             n
         }
         Err(_) => {
-            tracing::error!("Could not parse u32 from chunk at {start}");
+            tracing::error!("Could not parse u16 from chunk at {start}");
             0
         }
     };
     (n, start + 2)
+}
+
+pub fn read_u8(buf: &[u8], start: usize) -> (u8, usize) {
+    let end = start + 1;
+    let chunk = &buf[start..end];
+    let n = match <[u8; 1]>::try_from(chunk) {
+        Ok(bytes) => {
+            let n = u8::from_le_bytes(bytes);
+            n
+        }
+        Err(_) => {
+            tracing::error!("Could not parse u8 from chunk at {start}");
+            0
+        }
+    };
+    (n, end)
 }
 
 pub fn read_w_string(buf: &[u8], start: usize) -> (String, usize) {
@@ -62,7 +78,8 @@ pub fn read_w_string(buf: &[u8], start: usize) -> (String, usize) {
     let str = match std::str::from_utf8(chunk) {
         Ok(s) => s.to_string(),
         Err(e) => {
-            tracing::error!("Error parsing string: {:?}", e);
+            println!("Error parsing string: {:?}", e);
+            //  println!("Buffer from {:?} to {:?} value was {:?}", start, end);
             "".to_string()
         }
     };

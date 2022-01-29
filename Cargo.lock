@@ -1109,6 +1109,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05304f8e67dfc93d1b4b990137fd1a7a4c6ad44b60a9c486c8c4486f9d2027ae"
 
 [[package]]
+name = "lz4_flex"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42c51df9d8d4842336c835df1d85ed447c4813baa237d033d95128bf5552ad8a"
+dependencies = [
+ "twox-hash",
+]
+
+[[package]]
 name = "malloc_buf"
 version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1783,6 +1792,7 @@ dependencies = [
  "byteorder",
  "eframe",
  "futures",
+ "lz4_flex 0.9.2",
  "reqwest",
  "rfd",
  "rmp",
@@ -1804,7 +1814,7 @@ source = "git+https://github.com/divanvisagie/skyrim_savegame#919d81ae6da54f7c0b
 dependencies = [
  "anyhow",
  "flate2",
- "lz4_flex",
+ "lz4_flex 0.7.5",
 ]
 
 [[package]]
@@ -1857,6 +1867,12 @@ dependencies = [
  "libc",
  "winapi",
 ]
+
+[[package]]
+name = "static_assertions"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "strsim"
@@ -2112,6 +2128,16 @@ name = "ttf-parser"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ccbe8381883510b6a2d8f1e32905bddd178c11caef8083086d0c0c9ab0ac281"
+
+[[package]]
+name = "twox-hash"
+version = "1.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ee73e6e4924fe940354b8d4d98cad5231175d615cd855b758adc658c0aac6a0"
+dependencies = [
+ "cfg-if 1.0.0",
+ "static_assertions",
+]
 
 [[package]]
 name = "unicode-bidi"

@@ -47,7 +47,15 @@ pub struct Header {
     pub filetime: FileTime,
     pub screenshot_width: u32,
     pub screenshot_height: u32,
-    pub compression_type: u32,
+
+    /**
+     * 	(SE only)
+     *  0 = None
+     *  1 = zLib (appears to not be used, see this from MO2. It seems however to be used for Change Forms)
+     *  2 = LZ4 (Block format)
+     *  If compression is present, everything after the compression lengths is compressed.
+     */
+    pub compression_type: u16,
 }
 
 pub fn read_header(buf: &[u8], start: usize) -> (Header, usize) {
@@ -64,7 +72,7 @@ pub fn read_header(buf: &[u8], start: usize) -> (Header, usize) {
     let (filetime, cursor) = read_filetime(buf, cursor);
     let (screenshot_width, cursor) = read_u32(buf, cursor);
     let (screenshot_height, cursor) = read_u32(buf, cursor);
-    let (compression_type, cursor) = read_u32(buf, cursor);
+    let (compression_type, cursor) = read_u16(buf, cursor);
 
     let header = Header {
         version,

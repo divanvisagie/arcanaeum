@@ -1,17 +1,22 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
+use lz4_flex::decompress;
+use std::fmt::{self, Formatter};
+
+use eframe::egui::epaint::text::cursor;
 
 use crate::parser::{
     header::read_header,
-    utils::{read_bytes, read_charray, read_u32},
+    plugin_info::read_plugin_info,
+    utils::{read_bytes, read_charray, read_u32, read_u8},
 };
 
-use self::header::Header;
+use self::{header::Header, plugin_info::PluginInfo};
 
 mod header;
+mod plugin_info;
 mod utils;
 
-#[derive(Debug)]
 pub struct SaveInfo {
     pub magic_string: String,
     pub header_size: u32,
@@ -19,6 +24,34 @@ pub struct SaveInfo {
     pub screenshot_data: Vec<u8>,
     pub uncompressed_length: u32,
     pub compressed_length: u32,
+    pub form_version: u8,
+    pub plugin_info_size: u32,
+    pub plugin_info: PluginInfo,
+}
+
+impl fmt::Debug for SaveInfo {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(
+            f,
+            "magic_string: {:?} \n\
+            header_size: {:?} \n\
+            header: {:?} \n\
+            uncompressed_length: {:?} \n\
+            compressed_length: {:?} \n\
+            form_version: {:?} \n\
+            plugin_info_size: {:?} \n\
+            plugin_info: {:?} \n\
+            ",
+            self.magic_string,
+            self.header_size,
+            self.header,
+            self.uncompressed_length,
+            self.compressed_length,
+            self.form_version,
+            self.plugin_info_size,
+            self.plugin_info,
+        )
+    }
 }
 
 pub fn parse(buf: Vec<u8>) -> SaveInfo {
@@ -33,6 +66,30 @@ pub fn parse(buf: Vec<u8>) -> SaveInfo {
     let (uncompressed_length, cursor) = read_u32(buf, cursor);
     let (compressed_length, cursor) = read_u32(buf, cursor);
 
+    /*
+     * Need to check for compression before continuing
+     */
+    let buf = match header.compression_type {
+        0 => {
+            println!("File is not compressed");
+            buf[cursor..buf.len()].to_vec()
+        }
+        1 => panic!("TODO: Implement zlib decompression"),
+        2 => {
+            let slice = &buf[cursor..buf.len()];
+            let decompressed = decompress(&slice, uncompressed_length as usize)
+                .expect("Could not decompress body")
+                .clone();
+            decompressed
+        }
+        _ => panic!("Unknown compression type: {:?}", header.compression_type),
+    };
+    let buf = buf.as_slice();
+
+    let (form_version, cursor) = read_u8(buf, 0); //we need to start the cursor from 0 again
+    let (plugin_info_size, cursor) = read_u32(buf, cursor);
+    let (plugin_info, cursor) = read_plugin_info(buf, cursor);
+
     println!("Cursor position at {:?}", cursor);
     SaveInfo {
         magic_string,
@@ -41,6 +98,9 @@ pub fn parse(buf: Vec<u8>) -> SaveInfo {
         screenshot_data: screenshot_data.to_vec(),
         uncompressed_length,
         compressed_length,
+        form_version,
+        plugin_info_size,
+        plugin_info,
     }
 }
 
@@ -63,6 +123,7 @@ mod test {
     fn test_parse_magic_string() {
         let buf = get_file_buffer();
         let save_info = parse(buf);
+        println!("{:?}", save_info);
         assert_eq!(save_info.magic_string, "TESV_SAVEGAME");
     }
 
@@ -77,7 +138,6 @@ mod test {
     fn test_parse_header() {
         let buf = get_file_buffer();
         let save_info = parse(buf);
-        println!("{:?}", save_info.uncompressed_length);
         assert_eq!(save_info.header.version, 12);
         assert_eq!(save_info.header.save_number, 3);
         assert_eq!(save_info.header.player_name, "Aluna Messana");
