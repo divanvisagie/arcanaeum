@@ -6,120 +6,20 @@ use std::io::Read;
 use std::panic;
 
 use eframe::egui;
-use eframe::egui::Color32;
-use eframe::epi;
+
 use mod_search::vortex_scanner::get_installed_from_all_profiles;
 use mod_search::vortex_scanner::get_masterlist_data;
 use mod_search::vortex_scanner::Plugin;
 
+use crate::app::AppState;
 use crate::parser::parse;
 use crate::sktypes::skui_value::SkUIValue;
 use crate::sktypes::skui_value::UIValueType;
-use crate::sktypes::types::SkTypeReadable;
 
+mod app;
 mod mod_search;
 mod parser;
 mod sktypes;
-
-struct AppState {
-    file_path: String,
-    values: Vec<SkUIValue>,
-    mod_map: HashMap<String, Plugin>,
-    installed: HashSet<String>,
-    error: Option<String>,
-}
-
-impl epi::App for AppState {
-    fn update(&mut self, ctx: &egui::CtxRef, _frame: &epi::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            if ui.button("Browse to file").clicked() {
-                let res = rfd::FileDialog::new()
-                    .add_filter("Elder Scrolls Save", &["ess"])
-                    .set_directory("./input")
-                    .pick_file();
-
-                match res {
-                    Some(path_buf) => {
-                        self.file_path = String::from(path_buf.to_str().unwrap());
-                        match load_save_file(self.file_path.to_string()) {
-                            Ok(values) => {
-                                self.values = values;
-                                self.error = None;
-                            }
-                            Err(e) => {
-                                self.error = Some(e.to_string());
-                                self.values = Vec::new();
-                            }
-                        };
-                    }
-                    None => tracing::error!("No file selected"),
-                }
-            }
-            if let Some(e) = &self.error {
-                ui.colored_label(Color32::from_rgb(200, 50, 50), e);
-            }
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                egui::Grid::new("values")
-                    .striped(true)
-                    .min_row_height(22.)
-                    .min_col_width(300.0)
-                    .show(ui, |ui| {
-                        for value_entry in self.values.iter() {
-                            match value_entry.value_type {
-                                UIValueType::Plugin => {
-                                    ui.label(value_entry.get_value_string());
-                                    match value_entry.plugin_type {
-                                        sktypes::skui_value::PluginType::Native => {
-                                            ui.label("Original Game File/DLC");
-                                        }
-                                        sktypes::skui_value::PluginType::CreationClub => {
-                                            ui.label("Creation Club Mod");
-                                        }
-                                        sktypes::skui_value::PluginType::Mod => {
-                                            let key = &value_entry.get_value_string();
-                                            if self.installed.contains(key) {
-                                                ui.colored_label(
-                                                    Color32::from_rgb(50, 200, 50),
-                                                    "Installed",
-                                                );
-                                            } else if self.mod_map.contains_key(key) {
-                                                let value = self.mod_map.get(key).unwrap();
-
-                                                egui::Grid::new(key.as_str()).show(ui, |ui| {
-                                                    for l in value.urls.clone() {
-                                                        ui.hyperlink(l.as_str());
-                                                        ui.end_row();
-                                                    }
-                                                });
-                                            } else {
-                                                ui.colored_label(
-                                                    Color32::from_rgb(200, 50, 50),
-                                                    "Not Found",
-                                                );
-                                            }
-                                        }
-                                        sktypes::skui_value::PluginType::NotAPlugin => {}
-                                    }
-                                }
-                                UIValueType::Header => {
-                                    ui.heading(value_entry.get_name());
-                                }
-                                UIValueType::Value | UIValueType::U32(_) => {
-                                    ui.label(value_entry.get_name());
-                                    ui.label(value_entry.get_value_string());
-                                }
-                            }
-                            ui.end_row();
-                        }
-                    });
-            });
-        });
-    }
-
-    fn name(&self) -> &str {
-        "Arcanaeum"
-    }
-}
 
 fn load_mod_map() -> HashMap<String, Plugin> {
     let mut map = HashMap::new();
@@ -147,7 +47,6 @@ fn load_save_file(path: String) -> Result<Vec<SkUIValue>, Error> {
     file.read_to_end(&mut buf)?;
 
     let result = panic::catch_unwind(move || {
-        // let parsed = parse_save_file(buf.to_vec());
         let parsed = parse(buf);
         tracing::info!("{:?}", parsed.plugin_info);
         parsed

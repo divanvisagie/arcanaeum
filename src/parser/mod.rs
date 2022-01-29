@@ -62,10 +62,13 @@ fn get_decompressed_buffer(
 ) -> Vec<u8> {
     let buf = match compression_type {
         0 => {
-            println!("File is not compressed");
+            tracing::info!("File is not compressed");
             buf[cursor..buf.len()].to_vec()
         }
-        1 => panic!("TODO: Implement zlib decompression"),
+        1 => {
+            tracing::error!("TODO: Implement zlib decompression");
+            buf[cursor..buf.len()].to_vec()
+        }
         2 => {
             let slice = &buf[cursor..buf.len()];
             let decompressed = decompress(&slice, size)
@@ -74,7 +77,6 @@ fn get_decompressed_buffer(
             decompressed
         }
         _ => {
-            //panic!("Unknown compression type: {:?}", compression_type),
             // Fail silently and return old buf
             tracing::info!("Unsupported compression type, returning buffer as is");
             buf[cursor..buf.len()].to_vec()
@@ -128,7 +130,6 @@ pub fn parse(buf: Vec<u8>) -> SaveInfo {
 
 #[cfg(test)]
 mod test {
-
     use super::*;
     use std::{io::Read, path::PathBuf};
 
