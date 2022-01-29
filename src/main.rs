@@ -46,21 +46,7 @@ fn load_save_file(path: String) -> Result<Vec<SkUIValue>, Error> {
     let mut buf: Vec<u8> = Vec::new();
     file.read_to_end(&mut buf)?;
 
-    let result = panic::catch_unwind(move || {
-        let parsed = parse(buf);
-        tracing::info!("{:?}", parsed.plugin_info);
-        parsed
-    });
-
-    if let Err(e) = result {
-        tracing::error!("Error parsing the selected file: {:?}", e);
-        return Err(Error::new(
-            ErrorKind::InvalidData,
-            format!("Error Parsing Save File"),
-        ));
-    }
-
-    let parsed = result.ok().unwrap();
+    let parsed = parse(buf);
 
     let mut items: Vec<SkUIValue> = Vec::new();
     items.push(SkUIValue::new(
