@@ -11,11 +11,8 @@ use eframe::epi;
 use mod_search::vortex_scanner::get_installed_from_all_profiles;
 use mod_search::vortex_scanner::get_masterlist_data;
 use mod_search::vortex_scanner::Plugin;
-use skyrim_savegame::header::PlayerSex;
-use skyrim_savegame::parse_save_file;
 
 use crate::parser::parse;
-// use crate::parser::parse;
 use crate::sktypes::skui_value::SkUIValue;
 use crate::sktypes::skui_value::UIValueType;
 use crate::sktypes::types::SkTypeReadable;
@@ -215,18 +212,7 @@ fn load_save_file(path: String) -> Result<Vec<SkUIValue>, Error> {
         parsed.header.player_sex.to_string(),
         UIValueType::Value,
     ));
-    // match parsed.header.player_sex {
-    //     PlayerSex::Male => items.push(SkUIValue::new(
-    //         "Character Sex",
-    //         "Male".to_string(),
-    //         UIValueType::Value,
-    //     )),
-    //     PlayerSex::Female => items.push(SkUIValue::new(
-    //         "Character Sex",
-    //         "Female".to_string(),
-    //         UIValueType::Value,
-    //     )),
-    // }
+
     //End Header Section
     items.push(SkUIValue::new(
         "Plugins",

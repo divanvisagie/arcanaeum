@@ -66,6 +66,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "84450d0b4a8bd1ba4144ce8ce718fbc5d071358b1e5384bace6536b3d1f2d5b3"
 
 [[package]]
+name = "arcanaeum"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "futures",
+ "lz4_flex",
+ "reqwest",
+ "rfd",
+ "rmp",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "urlencoding",
+ "webbrowser",
+]
+
+[[package]]
 name = "atk-sys"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -334,15 +354,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crc32fast"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "738c290dfaea84fc1ca15ad9c168d083b05a714e1efddd8edaab678dc28d2836"
-dependencies = [
- "cfg-if 1.0.0",
-]
-
-[[package]]
 name = "cty"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -517,18 +528,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "779d043b6a0b90cc4c0ed7ee380a6504394cee7efd7db050e3774eee387324b2"
 dependencies = [
  "instant",
-]
-
-[[package]]
-name = "flate2"
-version = "1.0.22"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e6988e897c1c9c485f43b47a529cef42fde0547f9d8d41a7062518f1d8fc53f"
-dependencies = [
- "cfg-if 1.0.0",
- "crc32fast",
- "libc",
- "miniz_oxide",
 ]
 
 [[package]]
@@ -1101,12 +1100,6 @@ checksum = "51b9bbe6c47d51fc3e1a9b945965946b4c44142ab8792c50835a980d362c2710"
 dependencies = [
  "cfg-if 1.0.0",
 ]
-
-[[package]]
-name = "lz4_flex"
-version = "0.7.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05304f8e67dfc93d1b4b990137fd1a7a4c6ad44b60a9c486c8c4486f9d2027ae"
 
 [[package]]
 name = "lz4_flex"
@@ -1783,37 +1776,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e51e73328dc4ac0c7ccbda3a494dfa03df1de2f46018127f60c693f2648455b0"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "skyrim-saves"
-version = "0.1.0"
-dependencies = [
- "eframe",
- "futures",
- "lz4_flex 0.9.2",
- "reqwest",
- "rfd",
- "rmp",
- "serde",
- "serde_json",
- "serde_yaml",
- "skyrim_savegame",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "urlencoding",
- "webbrowser",
-]
-
-[[package]]
-name = "skyrim_savegame"
-version = "0.1.0"
-source = "git+https://github.com/divanvisagie/skyrim_savegame#919d81ae6da54f7c0b570920e6ee4a44c9d4afd0"
-dependencies = [
- "anyhow",
- "flate2",
- "lz4_flex 0.7.5",
 ]
 
 [[package]]
