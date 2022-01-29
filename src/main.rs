@@ -123,6 +123,7 @@ fn main() {
     };
     let mut window_options = eframe::NativeOptions::default();
     window_options.initial_window_size = Some(egui::Vec2::new(800., 768.));
+    window_options.resizable = true;
     window_options.decorated = true;
     eframe::run_native(Box::new(app_state), window_options);
 }

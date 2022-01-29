@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use eframe::egui;
 use eframe::egui::Color32;
+use eframe::egui::{self};
 use eframe::epi;
 
 use crate::{
@@ -24,7 +24,7 @@ pub struct AppState {
 
 impl epi::App for AppState {
     fn update(&mut self, ctx: &egui::CtxRef, _frame: &epi::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::TopBottomPanel::top("top-panel").show(ctx, |ui| {
             if ui.button("Browse to file").clicked() {
                 let res = rfd::FileDialog::new()
                     .add_filter("Elder Scrolls Save", &["ess"])
@@ -59,6 +59,8 @@ impl epi::App for AppState {
             if let Some(e) = &self.error {
                 ui.colored_label(Color32::from_rgb(200, 50, 50), e);
             }
+        });
+        egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 egui::Grid::new("values")
                     .striped(true)
