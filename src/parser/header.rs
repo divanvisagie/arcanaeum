@@ -69,6 +69,10 @@ pub struct Header {
 
 pub fn read_header(buf: &[u8], start: usize) -> (Header, usize) {
     let (version, cursor) = read_u32(buf, start);
+    tracing::info!("Version is: {version}");
+
+    let is_se = if version == 12 { true } else { false };
+
     let (save_number, cursor) = read_u32(buf, cursor);
     let (player_name, cursor) = read_w_string(buf, cursor);
     let (player_level, cursor) = read_u32(buf, cursor);
@@ -81,7 +85,14 @@ pub fn read_header(buf: &[u8], start: usize) -> (Header, usize) {
     let (filetime, cursor) = read_filetime(buf, cursor);
     let (screenshot_width, cursor) = read_u32(buf, cursor);
     let (screenshot_height, cursor) = read_u32(buf, cursor);
-    let (compression_type, cursor) = read_u16(buf, cursor);
+
+    let (compression_type, cursor) = match is_se {
+        true => {
+            let (compression_type, cursor) = read_u16(buf, cursor);
+            (compression_type, cursor)
+        }
+        false => (0, cursor),
+    };
 
     let header = Header {
         version,

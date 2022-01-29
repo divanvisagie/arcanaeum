@@ -54,6 +54,35 @@ impl fmt::Debug for SaveInfo {
     }
 }
 
+fn get_decompressed_buffer(
+    buf: &[u8],
+    compression_type: u16,
+    cursor: usize,
+    size: usize,
+) -> Vec<u8> {
+    let buf = match compression_type {
+        0 => {
+            println!("File is not compressed");
+            buf[cursor..buf.len()].to_vec()
+        }
+        1 => panic!("TODO: Implement zlib decompression"),
+        2 => {
+            let slice = &buf[cursor..buf.len()];
+            let decompressed = decompress(&slice, size)
+                .expect("Could not decompress body")
+                .clone();
+            decompressed
+        }
+        _ => {
+            //panic!("Unknown compression type: {:?}", compression_type),
+            // Fail silently and return old buf
+            tracing::info!("Unsupported compression type, returning buffer as is");
+            buf[cursor..buf.len()].to_vec()
+        }
+    };
+    buf
+}
+
 pub fn parse(buf: Vec<u8>) -> SaveInfo {
     let buf = buf.as_slice();
     let cursor = 0;
@@ -66,24 +95,17 @@ pub fn parse(buf: Vec<u8>) -> SaveInfo {
     let (uncompressed_length, cursor) = read_u32(buf, cursor);
     let (compressed_length, cursor) = read_u32(buf, cursor);
 
+    tracing::info!("compressed: {compressed_length} uncompressed: {uncompressed_length}");
+
     /*
      * Need to check for compression before continuing
      */
-    let buf = match header.compression_type {
-        0 => {
-            println!("File is not compressed");
-            buf[cursor..buf.len()].to_vec()
-        }
-        1 => panic!("TODO: Implement zlib decompression"),
-        2 => {
-            let slice = &buf[cursor..buf.len()];
-            let decompressed = decompress(&slice, uncompressed_length as usize)
-                .expect("Could not decompress body")
-                .clone();
-            decompressed
-        }
-        _ => panic!("Unknown compression type: {:?}", header.compression_type),
-    };
+    let buf = get_decompressed_buffer(
+        buf,
+        header.compression_type,
+        cursor,
+        uncompressed_length as usize,
+    );
     let buf = buf.as_slice();
 
     let (form_version, cursor) = read_u8(buf, 0); //we need to start the cursor from 0 again
