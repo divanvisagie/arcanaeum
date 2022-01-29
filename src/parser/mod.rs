@@ -142,7 +142,6 @@ mod test {
     fn test_parse_magic_string() {
         let buf = get_file_buffer();
         let save_info = parse(buf);
-        println!("{:?}", save_info);
         assert_eq!(save_info.magic_string, "TESV_SAVEGAME");
     }
 

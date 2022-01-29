@@ -78,8 +78,7 @@ pub fn read_w_string(buf: &[u8], start: usize) -> (String, usize) {
     let str = match std::str::from_utf8(chunk) {
         Ok(s) => s.to_string(),
         Err(e) => {
-            println!("Error parsing string: {:?}", e);
-            //  println!("Buffer from {:?} to {:?} value was {:?}", start, end);
+            tracing::error!("Error parsing string: {:?}", e);
             "".to_string()
         }
     };
