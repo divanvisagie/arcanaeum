@@ -1,9 +1,5 @@
-#![allow(unused_imports)]
-#![allow(dead_code)]
 use lz4_flex::decompress;
 use std::fmt::{self, Formatter};
-
-use eframe::egui::epaint::text::cursor;
 
 use crate::parser::{
     header::read_header,

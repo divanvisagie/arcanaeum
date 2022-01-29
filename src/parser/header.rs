@@ -1,7 +1,5 @@
 use std::fmt::{self, Display};
 
-use eframe::egui::epaint::text::cursor;
-
 use super::utils::{read_f32, read_u16, read_u32, read_w_string};
 
 #[derive(Debug)]
