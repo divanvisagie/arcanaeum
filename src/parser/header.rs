@@ -1,3 +1,5 @@
+use std::fmt::{self, Display};
+
 use eframe::egui::epaint::text::cursor;
 
 use super::utils::{read_f32, read_u16, read_u32, read_w_string};
@@ -16,6 +18,13 @@ impl From<u16> for Sex {
             1 => Sex::Female,
             _ => Sex::Undefined,
         }
+    }
+}
+
+impl Display for Sex {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // Use `self.number` to refer to each positional data point.
+        write!(f, "({:?})", self)
     }
 }
 

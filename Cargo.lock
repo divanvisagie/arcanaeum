@@ -1789,7 +1789,6 @@ dependencies = [
 name = "skyrim-saves"
 version = "0.1.0"
 dependencies = [
- "byteorder",
  "eframe",
  "futures",
  "lz4_flex 0.9.2",

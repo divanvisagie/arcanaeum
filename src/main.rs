@@ -14,6 +14,7 @@ use mod_search::vortex_scanner::Plugin;
 use skyrim_savegame::header::PlayerSex;
 use skyrim_savegame::parse_save_file;
 
+use crate::parser::parse;
 // use crate::parser::parse;
 use crate::sktypes::skui_value::SkUIValue;
 use crate::sktypes::skui_value::UIValueType;
@@ -149,7 +150,8 @@ fn load_save_file(path: String) -> Result<Vec<SkUIValue>, Error> {
     file.read_to_end(&mut buf)?;
 
     let result = panic::catch_unwind(move || {
-        let parsed = parse_save_file(buf.to_vec());
+        // let parsed = parse_save_file(buf.to_vec());
+        let parsed = parse(buf);
         tracing::info!("{:?}", parsed.plugin_info);
         parsed
     });
@@ -173,7 +175,7 @@ fn load_save_file(path: String) -> Result<Vec<SkUIValue>, Error> {
     // // Start Header Section
     items.push(SkUIValue::new(
         "File Type",
-        parsed.magic,
+        parsed.magic_string,
         UIValueType::Value,
     ));
     items.push(SkUIValue::new(
@@ -208,18 +210,23 @@ fn load_save_file(path: String) -> Result<Vec<SkUIValue>, Error> {
         UIValueType::Value,
     ));
 
-    match parsed.header.player_sex {
-        PlayerSex::Male => items.push(SkUIValue::new(
-            "Character Sex",
-            "Male".to_string(),
-            UIValueType::Value,
-        )),
-        PlayerSex::Female => items.push(SkUIValue::new(
-            "Character Sex",
-            "Female".to_string(),
-            UIValueType::Value,
-        )),
-    }
+    items.push(SkUIValue::new(
+        "Character Sex",
+        parsed.header.player_sex.to_string(),
+        UIValueType::Value,
+    ));
+    // match parsed.header.player_sex {
+    //     PlayerSex::Male => items.push(SkUIValue::new(
+    //         "Character Sex",
+    //         "Male".to_string(),
+    //         UIValueType::Value,
+    //     )),
+    //     PlayerSex::Female => items.push(SkUIValue::new(
+    //         "Character Sex",
+    //         "Female".to_string(),
+    //         UIValueType::Value,
+    //     )),
+    // }
     //End Header Section
     items.push(SkUIValue::new(
         "Plugins",
@@ -227,7 +234,7 @@ fn load_save_file(path: String) -> Result<Vec<SkUIValue>, Error> {
         UIValueType::Header,
     ));
 
-    for plugin in parsed.plugin_info {
+    for plugin in parsed.plugin_info.plugins {
         items.push(SkUIValue::new("Plugin", plugin, UIValueType::Plugin));
     }
 
