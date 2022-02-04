@@ -8,11 +8,10 @@ use eframe::egui;
 use mod_search::vortex_scanner::get_installed_from_all_profiles;
 use mod_search::vortex_scanner::get_masterlist_data;
 use mod_search::vortex_scanner::Plugin;
+use parser::SaveInfo;
 
 use crate::app::AppState;
 use crate::parser::parse;
-use crate::sktypes::skui_value::SkUIValue;
-use crate::sktypes::skui_value::UIValueType;
 
 mod app;
 mod mod_search;
@@ -37,7 +36,7 @@ fn load_installed(game: &str) -> HashSet<String> {
     installed
 }
 
-fn load_save_file(path: String) -> Result<(Vec<SkUIValue>, bool), Error> {
+fn load_save_file(path: String) -> Result<SaveInfo, Error> {
     tracing::info!("Loading file: {:?}", path);
     let mut file = std::fs::File::open(path)?;
 
@@ -45,69 +44,7 @@ fn load_save_file(path: String) -> Result<(Vec<SkUIValue>, bool), Error> {
     file.read_to_end(&mut buf)?;
 
     let parsed = parse(buf);
-
-    let mut items: Vec<SkUIValue> = Vec::new();
-    items.push(SkUIValue::new(
-        "File Info",
-        "".to_string(),
-        UIValueType::Header,
-    ));
-    // // Start Header Section
-    items.push(SkUIValue::new(
-        "File Type",
-        parsed.magic_string,
-        UIValueType::Value,
-    ));
-    items.push(SkUIValue::new(
-        "Save Number",
-        parsed.header.save_number.to_string(),
-        UIValueType::U32(parsed.header.save_number),
-    ));
-    items.push(SkUIValue::new(
-        "Character Name",
-        parsed.header.player_name,
-        UIValueType::Value,
-    ));
-    items.push(SkUIValue::new(
-        "Character Level",
-        parsed.header.player_level.to_string(),
-        UIValueType::Value,
-    ));
-    items.push(SkUIValue::new(
-        "Current Location",
-        parsed.header.player_location,
-        UIValueType::Value,
-    ));
-
-    items.push(SkUIValue::new(
-        "In-game date",
-        parsed.header.game_date,
-        UIValueType::Value,
-    ));
-    items.push(SkUIValue::new(
-        "Character Race",
-        parsed.header.player_race_editor_id,
-        UIValueType::Value,
-    ));
-
-    items.push(SkUIValue::new(
-        "Character Sex",
-        parsed.header.player_sex.to_string(),
-        UIValueType::Value,
-    ));
-
-    //End Header Section
-    items.push(SkUIValue::new(
-        "Plugins",
-        "".to_string(),
-        UIValueType::Header,
-    ));
-
-    for plugin in parsed.plugin_info.plugins {
-        items.push(SkUIValue::new("Plugin", plugin, UIValueType::Plugin));
-    }
-
-    Ok((items, parsed.header.is_se))
+    Ok(parsed)
 }
 
 fn main() {
@@ -116,10 +53,11 @@ fn main() {
 
     let app_state = AppState {
         file_path: String::from(""),
-        values: Vec::with_capacity(150),
+        save_info: None,
         mod_map: HashMap::new(),
         installed: HashSet::new(),
         error: None,
+        plugins: None,
     };
     let mut window_options = eframe::NativeOptions::default();
     window_options.initial_window_size = Some(egui::Vec2::new(800., 768.));

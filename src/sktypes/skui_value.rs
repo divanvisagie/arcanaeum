@@ -29,9 +29,6 @@ pub enum PluginType {
 
 pub enum UIValueType {
     Plugin,
-    Header,
-    Value,
-    U32(u32)
 }
 
 pub struct SkUIValue {

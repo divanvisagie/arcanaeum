@@ -1,6 +1,6 @@
 [package]
 name = "arcanaeum"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -20,3 +20,4 @@ futures = "0.3.19"
 reqwest = { version = "0.11", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
 lz4_flex = "0.9.2"
+image = { version = "0.23", default-features = false, features = ["jpeg", "png"] }
