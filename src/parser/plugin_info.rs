@@ -1,6 +1,6 @@
 use super::utils::{read_u8, read_w_string};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PluginInfo {
     pub plugin_count: u8,
     pub plugins: Vec<String>,

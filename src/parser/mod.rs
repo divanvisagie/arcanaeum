@@ -13,6 +13,7 @@ mod header;
 mod plugin_info;
 mod utils;
 
+#[derive(Clone)]
 pub struct SaveInfo {
     pub magic_string: String,
     pub header_size: u32,

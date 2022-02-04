@@ -2,7 +2,7 @@ use std::fmt::{self, Display};
 
 use super::utils::{read_f32, read_u16, read_u32, read_w_string};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Sex {
     Male,
     Female,
@@ -21,12 +21,11 @@ impl From<u16> for Sex {
 
 impl Display for Sex {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // Use `self.number` to refer to each positional data point.
         write!(f, "({:?})", self)
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FileTime {
     pub dw_low: u32,
     pub dw_high: u32,
@@ -39,7 +38,7 @@ pub fn read_filetime(buf: &[u8], start: usize) -> (FileTime, usize) {
     (ft, cursor)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Header {
     pub version: u32,
     pub save_number: u32,
