@@ -26,51 +26,61 @@ fn label_line(ui: &mut Ui, name: &str, value: &str) {
     ui.end_row();
 }
 
+fn handle_file_selector_click(app_state: &mut AppState) {
+    let res = rfd::FileDialog::new()
+    .add_filter("Elder Scrolls Save", &["ess"])
+    .set_directory("./input")
+    .pick_file();
+
+    match res {
+        Some(path_buf) => {
+            app_state.file_path = String::from(path_buf.to_str().unwrap());
+            match load_save_file(app_state.file_path.to_string()) {
+                Ok(values) => {
+                    if values.header.is_se {
+                        app_state.mod_map = load_mod_map("skyrimse");
+                        app_state.installed = load_installed("skyrimse")
+                    } else {
+                        app_state.mod_map = load_mod_map("skyrim");
+                        app_state.installed = load_installed("skyrim");
+                    }
+                    app_state.error = None;
+
+                    let mut plugins = Vec::new();
+                    for plugin_name in &values.plugin_info.plugins {
+                        let new_plugin = SkUIValue::new(
+                            plugin_name.as_str(),
+                            plugin_name.to_string(),
+                            UIValueType::Plugin,
+                        );
+                        plugins.push(new_plugin);
+                    }
+
+                    app_state.plugins = Some(plugins);
+                    app_state.save_info = Some(values);
+                }
+                Err(e) => {
+                    app_state.error = Some(e.to_string());
+                    app_state.save_info = None;
+                    app_state.plugins = None;
+                }
+            };
+        }
+        None => tracing::error!("No file selected"),
+    }
+}
+
 impl epi::App for AppState {
     fn update(&mut self, ctx: &egui::CtxRef, _frame: &epi::Frame) {
+        egui::SidePanel::left("side-panel").show(ctx, |ui| {
+            ui.heading("Characters");
+            ui.separator();
+            ui.label("Select a save file to inspect.");
+        });
+
         egui::TopBottomPanel::top("top-panel").show(ctx, |ui| {
             if ui.button("Browse to file").clicked() {
-                let res = rfd::FileDialog::new()
-                    .add_filter("Elder Scrolls Save", &["ess"])
-                    .set_directory("./input")
-                    .pick_file();
-
-                match res {
-                    Some(path_buf) => {
-                        self.file_path = String::from(path_buf.to_str().unwrap());
-                        match load_save_file(self.file_path.to_string()) {
-                            Ok(values) => {
-                                if values.header.is_se {
-                                    self.mod_map = load_mod_map("skyrimse");
-                                    self.installed = load_installed("skyrimse")
-                                } else {
-                                    self.mod_map = load_mod_map("skyrim");
-                                    self.installed = load_installed("skyrim");
-                                }
-                                self.error = None;
-
-                                let mut plugins = Vec::new();
-                                for plugin_name in &values.plugin_info.plugins {
-                                    let new_plugin = SkUIValue::new(
-                                        plugin_name.as_str(),
-                                        plugin_name.to_string(),
-                                        UIValueType::Plugin,
-                                    );
-                                    plugins.push(new_plugin);
-                                }
-
-                                self.plugins = Some(plugins);
-                                self.save_info = Some(values);
-                            }
-                            Err(e) => {
-                                self.error = Some(e.to_string());
-                                self.save_info = None;
-                                self.plugins = None;
-                            }
-                        };
-                    }
-                    None => tracing::error!("No file selected"),
-                }
+              handle_file_selector_click(self)
             }
             if let Some(e) = &self.error {
                 ui.colored_label(Color32::from_rgb(200, 50, 50), e);
