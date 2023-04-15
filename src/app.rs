@@ -70,17 +70,37 @@ fn handle_file_selector_click(app_state: &mut AppState) {
     }
 }
 
+
+fn handle_folder_selector_click(app_state: &mut AppState) {
+    let res = rfd::FileDialog::new()
+    .pick_folder();
+
+    match res {
+        Some(path_buf) => {
+            app_state.file_path = String::from(path_buf.to_str().unwrap());
+            tracing::info!("Selected folder: {}", app_state.file_path);
+        }
+        None => tracing::error!("No folder selected"),
+    }
+}
+
+
 impl epi::App for AppState {
     fn update(&mut self, ctx: &egui::CtxRef, _frame: &epi::Frame) {
         egui::SidePanel::left("side-panel").show(ctx, |ui| {
             ui.heading("Characters");
             ui.separator();
             ui.label("Select a save file to inspect.");
+
+            if ui.button("Select Folder").clicked() {
+                tracing::info!("Select folder clicked");
+                handle_folder_selector_click(self);
+            }
         });
 
         egui::TopBottomPanel::top("top-panel").show(ctx, |ui| {
             if ui.button("Browse to file").clicked() {
-              handle_file_selector_click(self)
+              handle_file_selector_click(self);
             }
             if let Some(e) = &self.error {
                 ui.colored_label(Color32::from_rgb(200, 50, 50), e);
