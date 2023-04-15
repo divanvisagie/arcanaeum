@@ -53,6 +53,7 @@ fn main() {
 
     let app_state = AppState {
         file_path: String::from(""),
+        folder_path: String::from(""),
         save_info: None,
         mod_map: HashMap::new(),
         installed: HashSet::new(),
