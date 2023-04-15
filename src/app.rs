@@ -41,7 +41,7 @@ fn handle_file_selector_click(app_state: &mut AppState) {
                 Ok(values) => {
                     if values.header.is_se {
                         app_state.mod_map = load_mod_map("skyrimse");
-                        app_state.installed = load_installed("skyrimse")
+                        app_state.installed = load_installed("skyrimse");
                     } else {
                         app_state.mod_map = load_mod_map("skyrim");
                         app_state.installed = load_installed("skyrim");
