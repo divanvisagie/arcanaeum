@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 use eframe::egui::Color32;
 use eframe::egui::{self};
@@ -18,6 +19,7 @@ pub struct AppState {
     pub installed: HashSet<String>,
     pub error: Option<String>,
     pub plugins: Option<Vec<SkUIValue>>,
+    pub folder_path: String,
 }
 
 fn label_line(ui: &mut Ui, name: &str, value: &str) {
@@ -77,8 +79,8 @@ fn handle_folder_selector_click(app_state: &mut AppState) {
 
     match res {
         Some(path_buf) => {
-            app_state.file_path = String::from(path_buf.to_str().unwrap());
-            tracing::info!("Selected folder: {}", app_state.file_path);
+            app_state.folder_path = String::from(path_buf.to_str().unwrap());
+            tracing::info!("Selected folder: {}", app_state.folder_path);
         }
         None => tracing::error!("No folder selected"),
     }
@@ -90,7 +92,6 @@ impl epi::App for AppState {
         egui::SidePanel::left("side-panel").show(ctx, |ui| {
             ui.heading("Characters");
             ui.separator();
-            ui.label("Select a save file to inspect.");
 
             if ui.button("Select Folder").clicked() {
                 tracing::info!("Select folder clicked");
@@ -99,6 +100,9 @@ impl epi::App for AppState {
         });
 
         egui::TopBottomPanel::top("top-panel").show(ctx, |ui| {
+            ui.heading("Selected Save File");
+            ui.label("Select a save file to inspect.");
+            ui.separator();
             if ui.button("Browse to file").clicked() {
               handle_file_selector_click(self);
             }
