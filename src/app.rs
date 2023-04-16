@@ -12,6 +12,7 @@ use crate::sktypes::types::SkTypeReadable;
 use crate::{load_installed, load_mod_map, sktypes};
 use crate::{load_save_file, mod_search::vortex_scanner::Plugin};
 
+#[derive(Clone)]
 pub struct AppState {
     pub file_path: String,
     pub save_info: Option<SaveInfo>,
@@ -20,6 +21,7 @@ pub struct AppState {
     pub error: Option<String>,
     pub plugins: Option<Vec<SkUIValue>>,
     pub folder_path: String,
+    pub save_file_list: Vec<PathBuf>,
 }
 
 fn label_line(ui: &mut Ui, name: &str, value: &str) {
@@ -37,39 +39,50 @@ fn handle_file_selector_click(app_state: &mut AppState) {
     match res {
         Some(path_buf) => {
             app_state.file_path = String::from(path_buf.to_str().unwrap());
-            match load_save_file(app_state.file_path.to_string()) {
-                Ok(values) => {
-                    if values.header.is_se {
-                        app_state.mod_map = load_mod_map("skyrimse");
-                        app_state.installed = load_installed("skyrimse");
-                    } else {
-                        app_state.mod_map = load_mod_map("skyrim");
-                        app_state.installed = load_installed("skyrim");
-                    }
-                    app_state.error = None;
-
-                    let mut plugins = Vec::new();
-                    for plugin_name in &values.plugin_info.plugins {
-                        let new_plugin = SkUIValue::new(
-                            plugin_name.as_str(),
-                            plugin_name.to_string(),
-                            UIValueType::Plugin,
-                        );
-                        plugins.push(new_plugin);
-                    }
-
-                    app_state.plugins = Some(plugins);
-                    app_state.save_info = Some(values);
-                }
-                Err(e) => {
-                    app_state.error = Some(e.to_string());
-                    app_state.save_info = None;
-                    app_state.plugins = None;
-                }
-            };
+            let new_state = load_savegame_file(app_state.clone());
+            *app_state = new_state;
         }
         None => tracing::error!("No file selected"),
     }
+}
+
+fn load_savegame_file(ast: AppState) -> AppState {
+    let mut app_state = ast.clone();
+    let path = app_state.file_path.to_string();
+    tracing::info!("Loading file: {}", path);
+
+    match load_save_file(path) {
+        Ok(values) => {
+            if values.header.is_se {
+                app_state.mod_map = load_mod_map("skyrimse");
+                app_state.installed = load_installed("skyrimse");
+            } else {
+                app_state.mod_map = load_mod_map("skyrim");
+                app_state.installed = load_installed("skyrim");
+            }
+            app_state.error = None;
+
+            let mut plugins = Vec::new();
+            for plugin_name in &values.plugin_info.plugins {
+                let new_plugin = SkUIValue::new(
+                    plugin_name.as_str(),
+                    plugin_name.to_string(),
+                    UIValueType::Plugin,
+                );
+                plugins.push(new_plugin);
+            }
+
+            app_state.plugins = Some(plugins);
+            app_state.save_info = Some(values);
+        }
+        Err(e) => {
+            app_state.error = Some(e.to_string());
+            app_state.save_info = None;
+            app_state.plugins = None;
+        }
+    };
+
+    return app_state;
 }
 
 
@@ -81,6 +94,18 @@ fn handle_folder_selector_click(app_state: &mut AppState) {
         Some(path_buf) => {
             app_state.folder_path = String::from(path_buf.to_str().unwrap());
             tracing::info!("Selected folder: {}", app_state.folder_path);
+
+            // List files in folder_path
+            let mut files = Vec::new();
+            for entry in std::fs::read_dir(app_state.folder_path.to_string()).unwrap() {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if path.is_file() {
+                    files.push(path);
+                }
+            }
+
+            app_state.save_file_list = files;
         }
         None => tracing::error!("No folder selected"),
     }
@@ -89,16 +114,57 @@ fn handle_folder_selector_click(app_state: &mut AppState) {
 
 impl epi::App for AppState {
     fn update(&mut self, ctx: &egui::CtxRef, _frame: &epi::Frame) {
+        self.draw_save_files_list(ctx);
+        self.draw_save_details(ctx);
+    }
+
+    fn name(&self) -> &str {
+        "Arcanaeum"
+    }
+}
+
+impl AppState {
+    fn draw_save_files_list(&mut self, ctx: &egui::CtxRef) {
         egui::SidePanel::left("side-panel").show(ctx, |ui| {
-            ui.heading("Characters");
+            ui.heading("Save Files");
             ui.separator();
 
             if ui.button("Select Folder").clicked() {
                 tracing::info!("Select folder clicked");
                 handle_folder_selector_click(self);
             }
-        });
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                egui::Grid::new("values")
+                .striped(true)
+                .min_row_height(22.)
+                // .min_col_width(400.0)
+                .max_col_width(400.0)
+                .show(ui, |ui| {
+                        for value_entry in &self.save_file_list {
+                            ui.label(value_entry.to_str().unwrap());
+                            if ui.button("Select").clicked() {
+                                let va = value_entry.to_str().unwrap();
+                                tracing::info!("Select clicked: {}", va);
+                                self.file_path = va.to_string();
+                                // load_savegame_file(&mut self);
 
+                                let new_state = load_savegame_file(self.clone());
+                                // self.mod_map = new_state.mod_map;
+                                // self.installed = new_state.installed;
+                                // self.error = new_state.error;
+                                // self.plugins = new_state.plugins;
+                                // self.save_info = new_state.save_info;
+
+                                // *self = new_state;
+                            }
+                            ui.end_row();
+                        }
+                });
+            });
+        });
+    }
+
+    fn draw_save_details(&mut self, ctx: &egui::CtxRef) {
         egui::TopBottomPanel::top("top-panel").show(ctx, |ui| {
             ui.heading("Selected Save File");
             ui.label("Select a save file to inspect.");
@@ -207,7 +273,4 @@ impl epi::App for AppState {
         });
     }
 
-    fn name(&self) -> &str {
-        "Arcanaeum"
-    }
 }

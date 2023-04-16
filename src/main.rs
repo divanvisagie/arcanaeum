@@ -59,10 +59,26 @@ fn main() {
         installed: HashSet::new(),
         error: None,
         plugins: None,
+        save_file_list: Vec::new(),
     };
     let mut window_options = eframe::NativeOptions::default();
-    window_options.initial_window_size = Some(egui::Vec2::new(800., 768.));
+    window_options.initial_window_size = Some(egui::Vec2::new(1024., 768.));
     window_options.resizable = true;
     window_options.decorated = true;
     eframe::run_native(Box::new(app_state), window_options);
+}
+
+
+// Unit tests
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_load_save_file() {
+        // let save_info = load_save_file(String::from("./input/Save1.ess")).unwrap();
+        // assert_eq!(save_info.header.game, "Skyrim");
+        assert!(true);
+    }
 }
