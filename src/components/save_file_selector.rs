@@ -1,13 +1,13 @@
 use eframe::egui;
 use dirs;
 use super::selectable_file_item::SelectableItemList;
-use std::sync::Mutex;
 
-pub struct SaveFileSelector {
+pub struct SaveFileSelector<'a> {
     pub save_folder_path: String,
+    save_files: &'a mut Vec<String>,
 }
 
-fn get_default_save_folder() -> String {
+pub fn get_default_save_folder() -> String {
     let mut path = dirs::document_dir().unwrap();
     path.push("My Games");
     path.push("Skyrim Special Edition");
@@ -15,12 +15,24 @@ fn get_default_save_folder() -> String {
     path.to_str().unwrap().to_string()
 }
 
-static  SAVE_FILES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+pub fn get_files_in_folder(path: &str) -> Vec<String> {
+    let mut files = Vec::new();
+    // List files in folder_path
+    for entry in std::fs::read_dir(path).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.is_file() {
+            files.push(path.to_str().unwrap().to_string());
+        }
+    }
+    files
+}
 
-impl SaveFileSelector {
-    pub fn new() -> SaveFileSelector {
+impl <'a> SaveFileSelector<'a> {
+    pub fn new(save_files: &'a mut Vec<String>) -> SaveFileSelector {
         SaveFileSelector {
             save_folder_path: String::from(""),
+            save_files: save_files
         }
     }
 
@@ -37,36 +49,28 @@ impl SaveFileSelector {
 
                 tracing::info!("Selected folder: {}", self.save_folder_path);
 
-                // List files in folder_path
-                for entry in std::fs::read_dir(&self.save_folder_path).unwrap() {
-                    let entry = entry.unwrap();
-                    let path = entry.path();
-                    if path.is_file() {
-                        //SAVE_FILES.push(path.to_str().unwrap().to_string());
-                        SAVE_FILES.lock().unwrap().push(path.to_str().unwrap().to_string());
-                    }
-                }
+                *self.save_files = get_files_in_folder(&self.save_folder_path)
             }
             None => tracing::error!("No folder selected"),
         }
     }
 
     fn get_save_files(&self) -> Vec<String> {
-        let save_files = SAVE_FILES.lock().unwrap();
-        save_files.clone()
+        self.save_files.clone()
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, cb: impl FnOnce(&str)) {
+    pub fn show(&mut self, ui: &mut egui::Ui, save_file_selected: impl FnOnce(&str)) {
         ui.heading("Save Files");
         ui.separator();
 
         if ui.button("Select Folder").clicked() {
             tracing::info!("Select folder clicked");
-            self.handle_folder_select()
+            self.handle_folder_select();
         }
 
         SelectableItemList::new(&self.get_save_files()).show(ui, | item| {
-            tracing::info!("Item: {}", item);
+            tracing::info!("Item in CharSel: {}", item);
+            save_file_selected(item);
         });
     }
 }

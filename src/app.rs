@@ -6,13 +6,14 @@ use eframe::egui::{self};
 use eframe::epi;
 use egui::Ui;
 
-use crate::components::character_selector::SaveFileSelector;
+use crate::components::save_file_selector::SaveFileSelector;
+use crate::components::detail_view::{self, DetailView};
 use crate::components::selectable_file_item::SelectableItemList;
 use crate::parser::SaveInfo;
 use crate::sktypes::skui_value::{SkUIValue, UIValueType};
 use crate::sktypes::types::SkTypeReadable;
 use crate::{load_installed, load_mod_map, sktypes};
-use crate::{load_save_file, mod_search::vortex_scanner::Plugin};
+use crate::{load_saveinfo_from_path, mod_search::vortex_scanner::Plugin};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -53,7 +54,7 @@ fn load_savegame_file(ast: AppState) -> AppState {
     let path = app_state.file_path.to_string();
     tracing::info!("Loading file: {}", path);
 
-    match load_save_file(path) {
+    match load_saveinfo_from_path(path) {
         Ok(values) => {
             if values.header.is_se {
                 app_state.mod_map = load_mod_map("skyrimse");
@@ -110,30 +111,6 @@ fn handle_folder_selector_click(app_state: &mut AppState) {
         }
         None => tracing::error!("No folder selected"),
     }
-}
-
-fn draw_selectable_file_item(ui: &mut Ui, save_file_list: &Vec<PathBuf>, item_selected_callback: impl Fn(&str)) {
-    
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        egui::Grid::new("values")
-        .striped(true)
-        .min_row_height(22.)
-        .max_col_width(400.0)
-        .show(ui, |ui| {
-                for value_entry in save_file_list {
-                    ui.label(value_entry.to_str().unwrap());
-                    if ui.button("Select").clicked() {
-                        let va = value_entry.to_str().unwrap();
-                        item_selected_callback(va);
-                    }
-                    ui.end_row();
-                }
-        });
-    });
-}
-
-fn draw_save_files_list(ctx: &egui::CtxRef) {
-    
 }
 
 // fn draw_save_file_details(ctx: &egui::CtxRef) {
@@ -244,17 +221,34 @@ fn draw_save_files_list(ctx: &egui::CtxRef) {
 //         });
 //     });
 // }
-
-
+impl AppState {
+    fn update_selected_savegame(&mut self) {
+        match load_saveinfo_from_path(self.file_path.to_string()) {
+            Ok(save_file) => {
+                self.save_info = Some(save_file);
+            }
+            Err(e) => {
+                self.error = Some(e.to_string());
+            }
+        }
+    }
+}
 
 impl epi::App for AppState {
+   
+
     fn update(&mut self, ctx: &egui::CtxRef, _frame: &epi::Frame) {
         egui::SidePanel::left("side-panel").show(ctx, |ui| {
-            SaveFileSelector::new().show(ui, |item| {
-                tracing::info!("Item: {}", item);
+            SaveFileSelector::new(&mut self.save_file_list).show(ui, |item| {
+                tracing::info!("File was selected: {}", item);
+                self.file_path = item.to_string();
+                // self.update_selected_savegame();
             });
         });
-        // draw_save_file_details(ctx);
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            DetailView::new(&mut self.file_path).show(ctx, ui);
+        });
     }
 
     fn name(&self) -> &str {

@@ -12,6 +12,8 @@ use parser::SaveInfo;
 use components::selectable_file_item::SelectableItemList;
 
 use crate::app::AppState;
+use crate::components::save_file_selector::get_default_save_folder;
+use crate::components::save_file_selector::get_files_in_folder;
 use crate::parser::parse;
 
 mod app;
@@ -38,7 +40,7 @@ fn load_installed(game: &str) -> HashSet<String> {
     installed
 }
 
-fn load_save_file(path: String) -> Result<SaveInfo, Error> {
+fn load_saveinfo_from_path(path: String) -> Result<SaveInfo, Error> {
     tracing::info!("Loading file: {:?}", path);
     let mut file = std::fs::File::open(path)?;
 
@@ -53,15 +55,17 @@ fn main() {
     tracing_subscriber::fmt::init();
     tracing::info!("App booting...");
 
+    let folder_path = get_default_save_folder();
+
     let app_state = AppState {
         file_path: String::from(""),
-        folder_path: String::from(""),
+        folder_path: folder_path,
         save_info: None,
         mod_map: HashMap::new(),
         installed: HashSet::new(),
         error: None,
         plugins: None,
-        save_file_list: Vec::new(),
+        save_file_list: get_files_in_folder( get_default_save_folder().as_str()),
     };
     let mut window_options = eframe::NativeOptions::default();
     window_options.initial_window_size = Some(egui::Vec2::new(1024., 768.));

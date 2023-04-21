@@ -5,15 +5,14 @@ pub struct SelectableItemList<'a> {
     pub selected: Option<String>,
 }
 
-
 impl SelectableItemList<'_> {
     pub fn new(items: &Vec<String>) -> SelectableItemList {
         SelectableItemList {
             items,
             selected: None,
         }
-
     }
+    
     pub fn show(&mut self, ui: &mut egui::Ui, cb: impl FnOnce(&str)) {
         let current = self.selected.clone();
         egui::ScrollArea::vertical().show(ui, |ui| {
@@ -25,6 +24,7 @@ impl SelectableItemList<'_> {
                 for value_entry in self.items {
                     ui.label(value_entry);
                     if ui.button("Select").clicked() {
+                        tracing::info!("Selected: {}", value_entry);
                         self.selected = Some(value_entry.to_string());
                     }
                     ui.end_row();
