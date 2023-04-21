@@ -21,7 +21,7 @@ pub fn get_files_in_folder(path: &str) -> Vec<String> {
     for entry in std::fs::read_dir(path).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
-        if path.is_file() {
+        if path.is_file() && path.extension().unwrap() == "ess" {
             files.push(path.to_str().unwrap().to_string());
         }
     }

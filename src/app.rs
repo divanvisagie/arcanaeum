@@ -221,28 +221,22 @@ fn handle_folder_selector_click(app_state: &mut AppState) {
 //         });
 //     });
 // }
-impl AppState {
-    fn update_selected_savegame(&mut self) {
-        match load_saveinfo_from_path(self.file_path.to_string()) {
-            Ok(save_file) => {
-                self.save_info = Some(save_file);
-            }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
-        }
-    }
-}
 
 impl epi::App for AppState {
-   
 
     fn update(&mut self, ctx: &egui::CtxRef, _frame: &epi::Frame) {
         egui::SidePanel::left("side-panel").show(ctx, |ui| {
             SaveFileSelector::new(&mut self.save_file_list).show(ui, |item| {
                 tracing::info!("File was selected: {}", item);
                 self.file_path = item.to_string();
-                // self.update_selected_savegame();
+                match load_saveinfo_from_path(self.file_path.to_string()) {
+                    Ok(save_file) => {
+                        self.save_info = Some(save_file);
+                    }
+                    Err(e) => {
+                        self.error = Some(e.to_string());
+                    }
+                }
             });
         });
 
