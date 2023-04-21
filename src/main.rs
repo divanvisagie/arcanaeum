@@ -68,7 +68,7 @@ fn main() {
         save_file_list: get_files_in_folder( get_default_save_folder().as_str()),
     };
     let mut window_options = eframe::NativeOptions::default();
-    window_options.initial_window_size = Some(egui::Vec2::new(1024., 768.));
+    window_options.initial_window_size = Some(egui::Vec2::new(1280., 768.));
     window_options.resizable = true;
     window_options.decorated = true;
     eframe::run_native(Box::new(app_state), window_options);

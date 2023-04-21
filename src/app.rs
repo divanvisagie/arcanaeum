@@ -49,6 +49,15 @@ fn handle_file_selector_click(app_state: &mut AppState, file_selector_callback: 
     }
 }
 
+pub fn convert_plugins_to_skui(plugins: Vec<String>) -> Vec<SkUIValue> {
+    let mut skui_plugins = Vec::new();
+    for plugin in plugins {
+        let new_plugin = SkUIValue::new(plugin.as_str(), plugin.to_string(), UIValueType::Plugin);
+        skui_plugins.push(new_plugin);
+    }
+    skui_plugins
+}
+
 fn load_savegame_file(ast: AppState) -> AppState {
     let mut app_state = ast.clone();
     let path = app_state.file_path.to_string();
@@ -114,64 +123,7 @@ fn handle_folder_selector_click(app_state: &mut AppState) {
 }
 
 // fn draw_save_file_details(ctx: &egui::CtxRef) {
-//     egui::TopBottomPanel::top("top-panel").show(ctx, |ui| {
-//         ui.heading("Selected Save File");
-//         ui.label("Select a save file to inspect.");
-//         ui.separator();
-//         if ui.button("Browse to file").clicked() {
-//         //   handle_file_selector_click(self);
-//         }
-//         if let Some(e) = &self.error {
-//             ui.colored_label(Color32::from_rgb(200, 50, 50), e);
-//         }
-//     });
 //     egui::CentralPanel::default().show(ctx, |ui| {
-//         egui::CentralPanel::default().show(ctx, |_ui| {
-//             egui::Grid::new("values")
-//                 .striped(true)
-//                 .min_row_height(22.)
-//                 .min_col_width(400.0)
-//                 .show(ui, |ui| {
-//                     if let Some(si) = &self.save_info {
-//                         if si.header.is_se {
-//                             label_line(ui, "Game", "Skyrim Special Edition");
-//                         } else {
-//                             label_line(ui, "Game", "Skyrim");
-//                         }
-
-//                         label_line(
-//                             ui,
-//                             "Save Number",
-//                             si.header.save_number.to_string().as_str(),
-//                         );
-
-//                         label_line(ui, "Character Name", si.header.player_name.as_str());
-//                         label_line(
-//                             ui,
-//                             "Character Level",
-//                             si.header.player_level.to_string().as_str(),
-//                         );
-//                         label_line(
-//                             ui,
-//                             "Character Sex",
-//                             si.header.player_sex.to_string().as_str(),
-//                         );
-//                         label_line(
-//                             ui,
-//                             "Character Race",
-//                             si.header.player_race_editor_id.as_str(),
-//                         );
-//                         label_line(ui, "In Game Date", si.header.game_date.as_str());
-//                         label_line(ui, "Player Location", si.header.player_location.as_str());
-//                     }
-//                 });
-//         });
-//         if let Some(_plugins) = &self.plugins {
-//             ui.separator();
-//             ui.heading("Plugins");
-//             ui.separator();
-//         }
-
 //         egui::ScrollArea::vertical().show(ui, |ui| {
 //             egui::Grid::new("values")
 //                 .striped(true)
@@ -241,7 +193,7 @@ impl epi::App for AppState {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            DetailView::new(&mut self.file_path).show(ctx, ui);
+            DetailView::new(&mut self.file_path, &self.save_info).show(ctx, ui);
         });
     }
 
