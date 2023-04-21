@@ -6,6 +6,8 @@ use eframe::egui::{self};
 use eframe::epi;
 use egui::Ui;
 
+use crate::components::character_selector::SaveFileSelector;
+use crate::components::selectable_file_item::SelectableItemList;
 use crate::parser::SaveInfo;
 use crate::sktypes::skui_value::{SkUIValue, UIValueType};
 use crate::sktypes::types::SkTypeReadable;
@@ -21,7 +23,7 @@ pub struct AppState {
     pub error: Option<String>,
     pub plugins: Option<Vec<SkUIValue>>,
     pub folder_path: String,
-    pub save_file_list: Vec<PathBuf>,
+    pub save_file_list: Vec<String>,
 }
 
 fn label_line(ui: &mut Ui, name: &str, value: &str) {
@@ -30,7 +32,7 @@ fn label_line(ui: &mut Ui, name: &str, value: &str) {
     ui.end_row();
 }
 
-fn handle_file_selector_click(app_state: &mut AppState) {
+fn handle_file_selector_click(app_state: &mut AppState, file_selector_callback: impl Fn(&str)) {
     let res = rfd::FileDialog::new()
     .add_filter("Elder Scrolls Save", &["ess"])
     .set_directory("./input")
@@ -85,7 +87,6 @@ fn load_savegame_file(ast: AppState) -> AppState {
     return app_state;
 }
 
-
 fn handle_folder_selector_click(app_state: &mut AppState) {
     let res = rfd::FileDialog::new()
     .pick_folder();
@@ -105,172 +106,158 @@ fn handle_folder_selector_click(app_state: &mut AppState) {
                 }
             }
 
-            app_state.save_file_list = files;
+            app_state.save_file_list = files.iter().map(|x| x.to_str().unwrap().to_string()).collect();
         }
         None => tracing::error!("No folder selected"),
     }
 }
 
+fn draw_selectable_file_item(ui: &mut Ui, save_file_list: &Vec<PathBuf>, item_selected_callback: impl Fn(&str)) {
+    
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        egui::Grid::new("values")
+        .striped(true)
+        .min_row_height(22.)
+        .max_col_width(400.0)
+        .show(ui, |ui| {
+                for value_entry in save_file_list {
+                    ui.label(value_entry.to_str().unwrap());
+                    if ui.button("Select").clicked() {
+                        let va = value_entry.to_str().unwrap();
+                        item_selected_callback(va);
+                    }
+                    ui.end_row();
+                }
+        });
+    });
+}
+
+fn draw_save_files_list(ctx: &egui::CtxRef) {
+    
+}
+
+// fn draw_save_file_details(ctx: &egui::CtxRef) {
+//     egui::TopBottomPanel::top("top-panel").show(ctx, |ui| {
+//         ui.heading("Selected Save File");
+//         ui.label("Select a save file to inspect.");
+//         ui.separator();
+//         if ui.button("Browse to file").clicked() {
+//         //   handle_file_selector_click(self);
+//         }
+//         if let Some(e) = &self.error {
+//             ui.colored_label(Color32::from_rgb(200, 50, 50), e);
+//         }
+//     });
+//     egui::CentralPanel::default().show(ctx, |ui| {
+//         egui::CentralPanel::default().show(ctx, |_ui| {
+//             egui::Grid::new("values")
+//                 .striped(true)
+//                 .min_row_height(22.)
+//                 .min_col_width(400.0)
+//                 .show(ui, |ui| {
+//                     if let Some(si) = &self.save_info {
+//                         if si.header.is_se {
+//                             label_line(ui, "Game", "Skyrim Special Edition");
+//                         } else {
+//                             label_line(ui, "Game", "Skyrim");
+//                         }
+
+//                         label_line(
+//                             ui,
+//                             "Save Number",
+//                             si.header.save_number.to_string().as_str(),
+//                         );
+
+//                         label_line(ui, "Character Name", si.header.player_name.as_str());
+//                         label_line(
+//                             ui,
+//                             "Character Level",
+//                             si.header.player_level.to_string().as_str(),
+//                         );
+//                         label_line(
+//                             ui,
+//                             "Character Sex",
+//                             si.header.player_sex.to_string().as_str(),
+//                         );
+//                         label_line(
+//                             ui,
+//                             "Character Race",
+//                             si.header.player_race_editor_id.as_str(),
+//                         );
+//                         label_line(ui, "In Game Date", si.header.game_date.as_str());
+//                         label_line(ui, "Player Location", si.header.player_location.as_str());
+//                     }
+//                 });
+//         });
+//         if let Some(_plugins) = &self.plugins {
+//             ui.separator();
+//             ui.heading("Plugins");
+//             ui.separator();
+//         }
+
+//         egui::ScrollArea::vertical().show(ui, |ui| {
+//             egui::Grid::new("values")
+//                 .striped(true)
+//                 .min_row_height(22.)
+//                 .min_col_width(400.0)
+//                 .max_col_width(400.0)
+//                 .show(ui, |ui| {
+//                     if let Some(plugins) = &self.plugins {
+//                         for value_entry in plugins {
+//                             ui.label(value_entry.get_name());
+//                             match value_entry.plugin_type {
+//                                 sktypes::skui_value::PluginType::Native => {
+//                                     ui.label("Original Game File/DLC");
+//                                 }
+//                                 sktypes::skui_value::PluginType::CreationClub => {
+//                                     ui.label("Creation Club Mod");
+//                                 }
+//                                 sktypes::skui_value::PluginType::Mod => {
+//                                     let key = &value_entry.get_value_string();
+//                                     if self.installed.contains(key) {
+//                                         ui.colored_label(
+//                                             Color32::from_rgb(50, 200, 50),
+//                                             "Installed",
+//                                         );
+//                                     } else if self.mod_map.contains_key(key) {
+//                                         let value = self.mod_map.get(key).unwrap();
+
+//                                         egui::ScrollArea::vertical().show(ui, |ui| {
+//                                             for l in value.urls.clone() {
+//                                                 ui.hyperlink(l.as_str());
+//                                                 ui.end_row();
+//                                             }
+//                                         });
+//                                     } else {
+//                                         ui.colored_label(
+//                                             Color32::from_rgb(200, 50, 50),
+//                                             "Not Found",
+//                                         );
+//                                     }
+//                                 }
+//                                 sktypes::skui_value::PluginType::NotAPlugin => {}
+//                             }
+//                             ui.end_row();
+//                         }
+//                     }
+//                 });
+//         });
+//     });
+// }
+
+
 
 impl epi::App for AppState {
     fn update(&mut self, ctx: &egui::CtxRef, _frame: &epi::Frame) {
-        self.draw_save_files_list(ctx);
-        self.draw_save_details(ctx);
+        egui::SidePanel::left("side-panel").show(ctx, |ui| {
+            SaveFileSelector::new().show(ui, |item| {
+                tracing::info!("Item: {}", item);
+            });
+        });
+        // draw_save_file_details(ctx);
     }
 
     fn name(&self) -> &str {
         "Arcanaeum"
     }
-}
-
-impl AppState {
-    fn draw_save_files_list(&mut self, ctx: &egui::CtxRef) {
-        egui::SidePanel::left("side-panel").show(ctx, |ui| {
-            ui.heading("Save Files");
-            ui.separator();
-
-            if ui.button("Select Folder").clicked() {
-                tracing::info!("Select folder clicked");
-                handle_folder_selector_click(self);
-            }
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                egui::Grid::new("values")
-                .striped(true)
-                .min_row_height(22.)
-                // .min_col_width(400.0)
-                .max_col_width(400.0)
-                .show(ui, |ui| {
-                        for value_entry in &self.save_file_list {
-                            ui.label(value_entry.to_str().unwrap());
-                            if ui.button("Select").clicked() {
-                                let va = value_entry.to_str().unwrap();
-                                tracing::info!("Select clicked: {}", va);
-                                self.file_path = va.to_string();
-                                // load_savegame_file(&mut self);
-
-                                let new_state = load_savegame_file(self.clone());
-                                // self.mod_map = new_state.mod_map;
-                                // self.installed = new_state.installed;
-                                // self.error = new_state.error;
-                                // self.plugins = new_state.plugins;
-                                // self.save_info = new_state.save_info;
-
-                                // *self = new_state;
-                            }
-                            ui.end_row();
-                        }
-                });
-            });
-        });
-    }
-
-    fn draw_save_details(&mut self, ctx: &egui::CtxRef) {
-        egui::TopBottomPanel::top("top-panel").show(ctx, |ui| {
-            ui.heading("Selected Save File");
-            ui.label("Select a save file to inspect.");
-            ui.separator();
-            if ui.button("Browse to file").clicked() {
-              handle_file_selector_click(self);
-            }
-            if let Some(e) = &self.error {
-                ui.colored_label(Color32::from_rgb(200, 50, 50), e);
-            }
-        });
-        egui::CentralPanel::default().show(ctx, |ui| {
-            egui::CentralPanel::default().show(ctx, |_ui| {
-                egui::Grid::new("values")
-                    .striped(true)
-                    .min_row_height(22.)
-                    .min_col_width(400.0)
-                    .show(ui, |ui| {
-                        if let Some(si) = &self.save_info {
-                            if si.header.is_se {
-                                label_line(ui, "Game", "Skyrim Special Edition");
-                            } else {
-                                label_line(ui, "Game", "Skyrim");
-                            }
-
-                            label_line(
-                                ui,
-                                "Save Number",
-                                si.header.save_number.to_string().as_str(),
-                            );
-
-                            label_line(ui, "Character Name", si.header.player_name.as_str());
-                            label_line(
-                                ui,
-                                "Character Level",
-                                si.header.player_level.to_string().as_str(),
-                            );
-                            label_line(
-                                ui,
-                                "Character Sex",
-                                si.header.player_sex.to_string().as_str(),
-                            );
-                            label_line(
-                                ui,
-                                "Character Race",
-                                si.header.player_race_editor_id.as_str(),
-                            );
-                            label_line(ui, "In Game Date", si.header.game_date.as_str());
-                            label_line(ui, "Player Location", si.header.player_location.as_str());
-                        }
-                    });
-            });
-            if let Some(_plugins) = &self.plugins {
-                ui.separator();
-                ui.heading("Plugins");
-                ui.separator();
-            }
-
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                egui::Grid::new("values")
-                    .striped(true)
-                    .min_row_height(22.)
-                    .min_col_width(400.0)
-                    .max_col_width(400.0)
-                    .show(ui, |ui| {
-                        if let Some(plugins) = &self.plugins {
-                            for value_entry in plugins {
-                                ui.label(value_entry.get_name());
-                                match value_entry.plugin_type {
-                                    sktypes::skui_value::PluginType::Native => {
-                                        ui.label("Original Game File/DLC");
-                                    }
-                                    sktypes::skui_value::PluginType::CreationClub => {
-                                        ui.label("Creation Club Mod");
-                                    }
-                                    sktypes::skui_value::PluginType::Mod => {
-                                        let key = &value_entry.get_value_string();
-                                        if self.installed.contains(key) {
-                                            ui.colored_label(
-                                                Color32::from_rgb(50, 200, 50),
-                                                "Installed",
-                                            );
-                                        } else if self.mod_map.contains_key(key) {
-                                            let value = self.mod_map.get(key).unwrap();
-
-                                            egui::ScrollArea::vertical().show(ui, |ui| {
-                                                for l in value.urls.clone() {
-                                                    ui.hyperlink(l.as_str());
-                                                    ui.end_row();
-                                                }
-                                            });
-                                        } else {
-                                            ui.colored_label(
-                                                Color32::from_rgb(200, 50, 50),
-                                                "Not Found",
-                                            );
-                                        }
-                                    }
-                                    sktypes::skui_value::PluginType::NotAPlugin => {}
-                                }
-                                ui.end_row();
-                            }
-                        }
-                    });
-            });
-        });
-    }
-
 }

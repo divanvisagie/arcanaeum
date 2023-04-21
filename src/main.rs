@@ -9,6 +9,7 @@ use mod_search::vortex_scanner::get_installed_from_all_profiles;
 use mod_search::vortex_scanner::get_masterlist_data;
 use mod_search::vortex_scanner::Plugin;
 use parser::SaveInfo;
+use components::selectable_file_item::SelectableItemList;
 
 use crate::app::AppState;
 use crate::parser::parse;
@@ -17,6 +18,7 @@ mod app;
 mod mod_search;
 mod parser;
 mod sktypes;
+mod components;
 
 fn load_mod_map(game: &str) -> HashMap<String, Plugin> {
     let mut map = HashMap::new();
