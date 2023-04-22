@@ -12,6 +12,7 @@ use parser::SaveInfo;
 use components::selectable_file_item::SelectableItemList;
 
 use crate::app::AppState;
+use crate::components::detail_view::DetailViewState;
 use crate::components::save_file_selector::get_default_save_folder;
 use crate::components::save_file_selector::get_files_in_folder;
 use crate::parser::parse;
@@ -61,11 +62,15 @@ fn main() {
         file_path: String::from(""),
         folder_path: folder_path,
         save_info: None,
-        mod_map: HashMap::new(),
-        installed: HashSet::new(),
         error: None,
-        plugins: None,
         save_file_list: get_files_in_folder( get_default_save_folder().as_str()),
+        detail_state: DetailViewState {
+            file_path: String::from(""),
+            save_info: None,
+            plugins: None,
+            mod_map: HashMap::new(),
+            installed: HashSet::new(),
+        },
     };
     let mut window_options = eframe::NativeOptions::default();
     window_options.initial_window_size = Some(egui::Vec2::new(1280., 768.));
