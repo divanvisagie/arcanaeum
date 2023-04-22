@@ -41,8 +41,7 @@ impl eframe::App for AppState {
             egui::widgets::global_dark_light_mode_switch(ui);
 
             SaveFileSelector::new(&mut self.save_file_list).show(ui, |item| {
-                tracing::info!("File was selected: {}", item);
-                self.detail_state.file_path = item.to_string();
+                self.detail_state.file_path = item.path.clone();
                 match load_saveinfo_from_path(self.detail_state.file_path.to_string()) {
                     Ok(save_file) => {
                         if save_file.header.is_se {

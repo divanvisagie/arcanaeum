@@ -1,11 +1,11 @@
 use std::io::Read;
 
-use eframe::{egui};
+use eframe::egui;
 use dirs;
 use crate::{app::SaveFile, parser::parse_header_only};
 use std::io::Error;
 
-use super::selectable_file_item::SelectableItemList;
+use super::selectable_file_item::{SelectableItemList, SelectableItem};
 
 pub struct SaveFileSelector<'a> {
     pub save_folder_path: String,
@@ -59,7 +59,7 @@ impl <'a> SaveFileSelector<'a> {
     pub fn new(save_files: &'a mut Vec<SaveFile>) -> SaveFileSelector {
         SaveFileSelector {
             save_folder_path: String::from(""),
-            save_files: save_files
+            save_files: save_files,
         }
     }
 
@@ -82,13 +82,17 @@ impl <'a> SaveFileSelector<'a> {
         }
     }
 
-    fn get_save_files(&self) -> Vec<String> {
+    fn get_save_files(&self) -> Vec<SelectableItem<SaveFile>> {
         self.save_files.clone().into_iter().map(|f| {
-            f.path
+            SelectableItem {
+                title: f.path.clone(),
+                description: "".to_string(),
+                value: f,
+            }
         }).collect()
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, save_file_selected: impl FnOnce(&str)) {
+    pub fn show(&mut self, ui: &mut egui::Ui, save_file_selected: impl FnOnce(SaveFile)) {
         ui.heading("Save Files");
         if ui.button("Select Skyrim save folder").clicked() {
             tracing::info!("Select folder clicked");
@@ -96,9 +100,8 @@ impl <'a> SaveFileSelector<'a> {
         }
         ui.separator();
 
-
-        SelectableItemList::new(&self.get_save_files()).show(ui, | item| {
-            tracing::info!("Item in CharSel: {}", item);
+        SelectableItemList::<SaveFile>::new(&self.get_save_files()).show(ui, | item| {
+            // tracing::info!("Item in CharSel: {}", item);
             save_file_selected(item);
         });
     }
