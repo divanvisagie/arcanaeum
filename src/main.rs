@@ -11,9 +11,6 @@ use mod_search::vortex_scanner::Plugin;
 use parser::SaveInfo;
 
 use crate::app::AppState;
-use crate::components::detail_view::DetailViewState;
-use crate::components::save_file_selector::get_default_save_folder;
-use crate::components::save_file_selector::get_files_in_folder;
 use crate::parser::parse;
 
 mod app;
@@ -59,7 +56,7 @@ fn main() {
     window_options.initial_window_size = Some(egui::Vec2::new(1280., 768.));
     window_options.resizable = true;
     window_options.decorated = true;
-    match eframe::run_native("", window_options, Box::new(|_cc| Box::<AppState>::default())) {
+    match eframe::run_native("Arcanaeum", window_options, Box::new(|_cc| Box::<AppState>::default())) {
         Ok(_) => {}
         Err(e) => {
             tracing::error!("Error: {}", e);
