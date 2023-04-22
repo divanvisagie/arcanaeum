@@ -1,15 +1,17 @@
+use eframe::egui::{self};
 use std::collections::HashMap;
 use std::collections::HashSet;
-use eframe::egui::{self};
 
-use crate::components::save_file_selector::{SaveFileSelector, get_files_in_folder, get_default_save_folder};
-use crate::components::detail_view::{DetailView};
+use crate::components::detail_view::DetailView;
+use crate::components::save_file_selector::{
+    get_default_save_folder, get_files_in_folder, SaveFileSelector,
+};
+use crate::load_saveinfo_from_path;
 use crate::mod_search::vortex_scanner::Plugin;
+use crate::parser::header::Header;
 use crate::parser::SaveInfo;
 use crate::sktypes::skui_value::{SkUIValue, UIValueType};
 use crate::{load_installed, load_mod_map};
-use crate::{load_saveinfo_from_path};
-use crate::parser::header::Header;
 
 #[derive(Clone)]
 pub struct DetailState {
@@ -21,19 +23,26 @@ pub struct DetailState {
 }
 
 #[derive(Clone)]
+pub struct SavesState {
+    pub save_file_list: Vec<SaveFile>,
+    pub characters: HashMap<String, Vec<SaveFile>>,
+    pub save_folder_path: String,
+    pub selected_character: Option<String>,
+}
+
+#[derive(Clone)]
 pub struct AppState {
     pub error: Option<String>,
     pub folder_path: String,
-    pub save_file_list: Vec<SaveFile>,
     pub detail_state: DetailState,
-    pub characters: HashMap<String, Vec<SaveFile>>,
+    pub saves_state: SavesState,
 }
 
 #[derive(Clone)]
 pub struct SaveFile {
     pub path: String,
     pub file_name: String,
-    pub header: Option<Header>
+    pub header: Option<Header>,
 }
 
 pub fn convert_plugins_to_skui(plugins: &Vec<String>) -> Vec<SkUIValue> {
@@ -50,23 +59,23 @@ fn map_saves_to_characters(saves: &Vec<SaveFile>) -> HashMap<String, Vec<SaveFil
     for save in saves {
         let character_name = save.header.as_ref().unwrap().player_name.clone();
         if character_map.contains_key(&character_name) {
-            character_map.get_mut(&character_name).unwrap().push(save.clone());
+            character_map
+                .get_mut(&character_name)
+                .unwrap()
+                .push(save.clone());
         } else {
             character_map.insert(character_name, vec![save.clone()]);
         }
     }
-    character_map 
+    character_map
 }
 
-
 impl eframe::App for AppState {
-
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-
         egui::SidePanel::left("side-panel").show(ctx, |ui| {
             egui::widgets::global_dark_light_mode_switch(ui);
 
-            SaveFileSelector::new(&mut self.save_file_list).show(ui, |item| {
+            SaveFileSelector::new(&mut self.saves_state).show(ctx, ui, |item| {
                 self.detail_state.file_path = item.path.clone();
                 match load_saveinfo_from_path(self.detail_state.file_path.to_string()) {
                     Ok(save_file) => {
@@ -94,20 +103,17 @@ impl eframe::App for AppState {
             DetailView::new(&mut self.detail_state).show(ctx, ui);
         });
     }
-  
 }
-
 
 impl Default for AppState {
     fn default() -> Self {
         let folder_path = get_default_save_folder();
-        let saves = get_files_in_folder( folder_path.as_str());
+        let saves = get_files_in_folder(folder_path.as_str());
         let characters = map_saves_to_characters(&saves);
 
         Self {
             folder_path: folder_path,
             error: None,
-            save_file_list: get_files_in_folder( get_default_save_folder().as_str()),
             detail_state: DetailState {
                 file_path: String::from(""),
                 save_info: None,
@@ -115,7 +121,12 @@ impl Default for AppState {
                 mod_map: HashMap::new(),
                 installed: HashSet::new(),
             },
-            characters,
+            saves_state: SavesState {
+                save_file_list: get_files_in_folder(get_default_save_folder().as_str()),
+                characters,
+                save_folder_path: get_default_save_folder(),
+                selected_character: None,
+            },
         }
     }
 }
