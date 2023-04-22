@@ -5,7 +5,7 @@ use crate::{
     parser::parse_header_only,
 };
 use dirs;
-use eframe::egui;
+use eframe::{egui, emath::Align};
 use std::io::Error;
 
 use super::selectable_file_item::{SelectableItem, SelectableItemList};
@@ -103,8 +103,6 @@ impl<'a> SaveFileSelector<'a> {
         save_file_selected: impl FnOnce(SaveFile),
     ) {
         ui.vertical(|ui| {
-            ui.label("Skyrim Save Editor");
-            ui.heading("Save Files");
             if ui.button("Select Skyrim save folder").clicked() {
                 tracing::info!("Select folder clicked");
                 self.handle_folder_select();
@@ -112,57 +110,76 @@ impl<'a> SaveFileSelector<'a> {
             ui.separator();
         });
 
-        ui.horizontal(|ui| {
-            let x = self
-                .state
-                .characters
-                .iter()
-                .map(|(name, file)| SelectableItem {
-                    title: name.to_string(),
-                    description: "".to_string(),
-                    value: file.clone(),
-                })
-                .collect::<Vec<SelectableItem<_>>>();
-
-            SelectableItemList::<Vec<SaveFile>>::new("character_list", &x)
-                .width(200.)
-                .show(ui, |item| {
-                    let charname = item
-                        .first()
-                        .unwrap()
-                        .header
-                        .as_ref()
-                        .unwrap()
-                        .player_name
-                        .clone();
-
-                    tracing::info!(
-                        "Item in CharSel: {}",
-                        item.first().unwrap().header.as_ref().unwrap().player_name
-                    );
-                    self.state.selected_character = Some(charname);
-                });
-
-            if let Some(selected_char) = &self.state.selected_character {
+        ui.with_layout(
+            egui::Layout::left_to_right(Align::Min).with_cross_justify(true),
+            |ui| {
                 let x = self
                     .state
                     .characters
-                    .get(selected_char)
-                    .unwrap()
-                    .clone()
-                    .into_iter()
-                    .map(|f| SelectableItem {
-                        title: f.file_name.clone(),
+                    .iter()
+                    .map(|(name, file)| SelectableItem {
+                        title: name.to_string(),
                         description: "".to_string(),
-                        value: f,
+                        value: file.clone(),
                     })
                     .collect::<Vec<SelectableItem<_>>>();
 
-                SelectableItemList::<SaveFile>::new("save_file_list", &x).show(ui, |item| {
-                    tracing::info!("Item in CharSel: {}", item.file_name);
-                    save_file_selected(item.clone());
+                ui.push_id("character_list_scroll", |ui| {
+                    egui::ScrollArea::vertical()
+                        .max_height(ui.available_height())
+                        .show(ui, |ui| {
+                            ui.heading("Characters");
+                            ui.separator();
+                            SelectableItemList::<Vec<SaveFile>>::new("character_list", &x)
+                                .width(200.)
+                                .show(ui, |item| {
+                                    let charname = item
+                                        .first()
+                                        .unwrap()
+                                        .header
+                                        .as_ref()
+                                        .unwrap()
+                                        .player_name
+                                        .clone();
+
+                                    tracing::info!(
+                                        "Item in CharSel: {}",
+                                        item.first().unwrap().header.as_ref().unwrap().player_name
+                                    );
+                                    self.state.selected_character = Some(charname);
+                                });
+                        })
                 });
-            }
-        });
+
+                if let Some(selected_char) = &self.state.selected_character {
+                    let x = self
+                        .state
+                        .characters
+                        .get(selected_char)
+                        .unwrap()
+                        .clone()
+                        .into_iter()
+                        .map(|f| SelectableItem {
+                            title: f.file_name.clone(),
+                            description: "".to_string(),
+                            value: f,
+                        })
+                        .collect::<Vec<SelectableItem<_>>>();
+
+                    ui.push_id("save_list_scroll", |ui| {
+                        egui::ScrollArea::vertical()
+                            .max_height(ui.available_height())
+                            .show(ui, |ui| {
+                                SelectableItemList::<SaveFile>::new("save_file_list", &x)
+                                    .width(250.)
+                                    .show(ui, |item| {
+                                        tracing::info!("Item in CharSel: {}", item.file_name);
+                                        save_file_selected(item.clone());
+                                    });
+                            });
+                    });
+                }
+            },
+        );
     }
 }
