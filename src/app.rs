@@ -3,23 +3,36 @@ use std::collections::HashSet;
 use eframe::egui::{self};
 
 use crate::components::save_file_selector::{SaveFileSelector, get_files_in_folder, get_default_save_folder};
-use crate::components::detail_view::{DetailView, DetailViewState};
+use crate::components::detail_view::{DetailView};
+use crate::mod_search::vortex_scanner::Plugin;
+use crate::parser::SaveInfo;
 use crate::sktypes::skui_value::{SkUIValue, UIValueType};
 use crate::{load_installed, load_mod_map};
 use crate::{load_saveinfo_from_path};
 use crate::parser::header::Header;
 
 #[derive(Clone)]
+pub struct DetailState {
+    pub file_path: String,
+    pub save_info: Option<SaveInfo>,
+    pub plugins: Option<Vec<SkUIValue>>,
+    pub mod_map: HashMap<String, Plugin>,
+    pub installed: HashSet<String>,
+}
+
+#[derive(Clone)]
 pub struct AppState {
     pub error: Option<String>,
     pub folder_path: String,
     pub save_file_list: Vec<SaveFile>,
-    pub detail_state: DetailViewState,
+    pub detail_state: DetailState,
+    pub characters: HashMap<String, Vec<SaveFile>>,
 }
 
 #[derive(Clone)]
 pub struct SaveFile {
     pub path: String,
+    pub file_name: String,
     pub header: Option<Header>
 }
 
@@ -30,6 +43,19 @@ pub fn convert_plugins_to_skui(plugins: &Vec<String>) -> Vec<SkUIValue> {
         skui_plugins.push(new_plugin);
     }
     skui_plugins
+}
+
+fn map_saves_to_characters(saves: &Vec<SaveFile>) -> HashMap<String, Vec<SaveFile>> {
+    let mut character_map: HashMap<String, Vec<SaveFile>> = HashMap::new();
+    for save in saves {
+        let character_name = save.header.as_ref().unwrap().player_name.clone();
+        if character_map.contains_key(&character_name) {
+            character_map.get_mut(&character_name).unwrap().push(save.clone());
+        } else {
+            character_map.insert(character_name, vec![save.clone()]);
+        }
+    }
+    character_map 
 }
 
 
@@ -53,7 +79,7 @@ impl eframe::App for AppState {
                         }
 
                         let plugins = convert_plugins_to_skui(&save_file.plugin_info.plugins);
-                        
+
                         self.detail_state.plugins = Some(plugins);
                         self.detail_state.save_info = Some(save_file);
                     }
@@ -75,17 +101,21 @@ impl eframe::App for AppState {
 impl Default for AppState {
     fn default() -> Self {
         let folder_path = get_default_save_folder();
+        let saves = get_files_in_folder( folder_path.as_str());
+        let characters = map_saves_to_characters(&saves);
+
         Self {
             folder_path: folder_path,
             error: None,
             save_file_list: get_files_in_folder( get_default_save_folder().as_str()),
-            detail_state: DetailViewState {
+            detail_state: DetailState {
                 file_path: String::from(""),
                 save_info: None,
                 plugins: None,
                 mod_map: HashMap::new(),
                 installed: HashSet::new(),
             },
+            characters,
         }
     }
 }

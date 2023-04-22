@@ -1,8 +1,6 @@
-use std::collections::{HashMap, HashSet};
-
 use eframe::egui::{self, Ui, Color32};
 
-use crate::{parser::SaveInfo, sktypes::{types::SkTypeReadable, self, skui_value::SkUIValue}, mod_search::vortex_scanner::Plugin};
+use crate::{sktypes::{types::SkTypeReadable, self}, app::DetailState};
 
 fn label_line(ui: &mut Ui, name: &str, value: &str) {
     ui.label(name);
@@ -13,21 +11,12 @@ fn label_line(ui: &mut Ui, name: &str, value: &str) {
 //set column width const
 const COL_WIDTH: f32 = 400.0;
 
-#[derive(Clone)]
-pub struct DetailViewState {
-    pub file_path: String,
-    pub save_info: Option<SaveInfo>,
-    pub plugins: Option<Vec<SkUIValue>>,
-    pub mod_map: HashMap<String, Plugin>,
-    pub installed: HashSet<String>,
-}
-
 pub struct DetailView<'a> {
-    state: &'a DetailViewState,
+    state: &'a DetailState,
 }
 
 impl <'a> DetailView <'a> {
-    pub fn new(state: &'a DetailViewState) -> DetailView<'a> {
+    pub fn new(state: &'a DetailState) -> DetailView<'a> {
         DetailView {
             state
         }
