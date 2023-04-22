@@ -9,7 +9,6 @@ use mod_search::vortex_scanner::get_installed_from_all_profiles;
 use mod_search::vortex_scanner::get_masterlist_data;
 use mod_search::vortex_scanner::Plugin;
 use parser::SaveInfo;
-use components::selectable_file_item::SelectableItemList;
 
 use crate::app::AppState;
 use crate::components::detail_view::DetailViewState;
@@ -59,9 +58,7 @@ fn main() {
     let folder_path = get_default_save_folder();
 
     let app_state = AppState {
-        file_path: String::from(""),
         folder_path: folder_path,
-        save_info: None,
         error: None,
         save_file_list: get_files_in_folder( get_default_save_folder().as_str()),
         detail_state: DetailViewState {
@@ -79,17 +76,3 @@ fn main() {
     eframe::run_native(Box::new(app_state), window_options);
 }
 
-
-// Unit tests
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_load_save_file() {
-        // let save_info = load_save_file(String::from("./input/Save1.ess")).unwrap();
-        // assert_eq!(save_info.header.game, "Skyrim");
-        assert!(true);
-    }
-}

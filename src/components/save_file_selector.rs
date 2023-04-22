@@ -61,12 +61,12 @@ impl <'a> SaveFileSelector<'a> {
 
     pub fn show(&mut self, ui: &mut egui::Ui, save_file_selected: impl FnOnce(&str)) {
         ui.heading("Save Files");
-        ui.separator();
-
-        if ui.button("Select Folder").clicked() {
+        if ui.button("Select Skyrim save folder").clicked() {
             tracing::info!("Select folder clicked");
             self.handle_folder_select();
         }
+        ui.separator();
+
 
         SelectableItemList::new(&self.get_save_files()).show(ui, | item| {
             tracing::info!("Item in CharSel: {}", item);
