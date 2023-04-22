@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use eframe::egui::{self, Ui, Color32};
 
-use crate::{parser::SaveInfo, app::convert_plugins_to_skui, sktypes::{types::SkTypeReadable, self, skui_value::SkUIValue}, mod_search::vortex_scanner::Plugin};
+use crate::{parser::SaveInfo, sktypes::{types::SkTypeReadable, self, skui_value::SkUIValue}, mod_search::vortex_scanner::Plugin};
 
 fn label_line(ui: &mut Ui, name: &str, value: &str) {
     ui.label(name);

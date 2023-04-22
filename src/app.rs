@@ -4,7 +4,6 @@ use eframe::epi;
 
 use crate::components::save_file_selector::SaveFileSelector;
 use crate::components::detail_view::{DetailView, DetailViewState};
-use crate::parser::SaveInfo;
 use crate::sktypes::skui_value::{SkUIValue, UIValueType};
 use crate::{load_installed, load_mod_map};
 use crate::{load_saveinfo_from_path};
@@ -26,49 +25,10 @@ pub fn convert_plugins_to_skui(plugins: &Vec<String>) -> Vec<SkUIValue> {
     skui_plugins
 }
 
-fn load_savegame_file(ast: AppState) -> AppState {
-    let mut app_state = ast.clone();
-    let path = app_state.detail_state.file_path.to_string();
-    tracing::info!("Loading file: {}", path);
-
-    match load_saveinfo_from_path(path) {
-        Ok(values) => {
-            if values.header.is_se {
-                app_state.detail_state.mod_map = load_mod_map("skyrimse");
-                app_state.detail_state.installed = load_installed("skyrimse");
-            } else {
-                app_state.detail_state.mod_map = load_mod_map("skyrim");
-                app_state.detail_state.installed = load_installed("skyrim");
-            }
-            app_state.error = None;
-            let mut plugins = Vec::new();
-            for plugin_name in &values.plugin_info.plugins {
-                let new_plugin = SkUIValue::new(
-                    plugin_name.as_str(),
-                    plugin_name.to_string(),
-                    UIValueType::Plugin,
-                );
-                plugins.push(new_plugin);
-            }
-
-            app_state.detail_state.plugins = Some(plugins);
-            app_state.detail_state.save_info = Some(values);
-        }
-        Err(e) => {
-            app_state.error = Some(e.to_string());
-            app_state.detail_state.save_info = None;
-            app_state.detail_state.plugins = None;
-        }
-    };
-
-    return app_state;
-}
-
 
 impl epi::App for AppState {
 
     fn update(&mut self, ctx: &egui::CtxRef, _frame: &epi::Frame) {
-
 
         egui::SidePanel::left("side-panel").show(ctx, |ui| {
             egui::widgets::global_dark_light_mode_switch(ui);

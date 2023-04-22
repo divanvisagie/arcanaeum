@@ -88,7 +88,7 @@ pub fn get_installed_from_all_profiles(game: &str) -> Vec<String> {
                 Ok(plugins_in_profile) => {
                     all.extend(plugins_in_profile);
                 }
-                _ => (tracing::error!("Cannot read plugins from profile: {prof}")),
+                _ => tracing::error!("Cannot read plugins from profile: {prof}"),
             }
         }
     } else {
