@@ -38,21 +38,25 @@ where
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui, cb: impl FnOnce(T)) {
-        // egui::ScrollArea::vertical().show(ui, |ui| {
-        egui::Grid::new(self.id_source)
-            .striped(true)
-            .min_row_height(22.)
-            .max_col_width(self.width)
-            .show(ui, |ui| {
-                for si in self.items {
-                    if create_clickable_row(ui, si.title.clone(), 44.) {
-                        tracing::info!("Selected: {}", si.title);
-                        self.selected = Some(si.value.clone());
-                    }
-                    ui.end_row();
-                }
-            });
-        // });
+        ui.push_id(self.id_source, |ui| {
+            egui::ScrollArea::vertical()
+                .max_height(ui.available_height())
+                .show(ui, |ui| {
+                    egui::Grid::new(self.id_source)
+                        .striped(true)
+                        .min_row_height(22.)
+                        .max_col_width(self.width)
+                        .show(ui, |ui| {
+                            for si in self.items {
+                                if create_clickable_row(ui, si.title.clone(), 44.) {
+                                    tracing::info!("Selected: {}", si.title);
+                                    self.selected = Some(si.value.clone());
+                                }
+                                ui.end_row();
+                            }
+                        });
+                });
+        });
 
         if let Some(selected) = self.selected.clone() {
             cb(selected);

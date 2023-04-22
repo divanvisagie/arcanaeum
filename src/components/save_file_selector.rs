@@ -119,32 +119,26 @@ impl<'a> SaveFileSelector<'a> {
                     })
                     .collect::<Vec<SelectableItem<_>>>();
 
-                ui.push_id("character_list_scroll", |ui| {
-                    egui::ScrollArea::vertical()
-                        .max_height(ui.available_height())
-                        .show(ui, |ui| {
-                            ui.heading("Characters");
-                            ui.separator();
-                            SelectableItemList::<Vec<SaveFile>>::new("character_list", &x)
-                                .width(200.)
-                                .show(ui, |item| {
-                                    let charname = item
-                                        .first()
-                                        .unwrap()
-                                        .header
-                                        .as_ref()
-                                        .unwrap()
-                                        .player_name
-                                        .clone();
+                ui.heading("Characters");
+                ui.separator();
+                SelectableItemList::<Vec<SaveFile>>::new("character_list", &x)
+                    .width(200.)
+                    .show(ui, |item| {
+                        let charname = item
+                            .first()
+                            .unwrap()
+                            .header
+                            .as_ref()
+                            .unwrap()
+                            .player_name
+                            .clone();
 
-                                    tracing::info!(
-                                        "Item in CharSel: {}",
-                                        item.first().unwrap().header.as_ref().unwrap().player_name
-                                    );
-                                    self.state.selected_character = Some(charname);
-                                });
-                        })
-                });
+                        tracing::info!(
+                            "Item in CharSel: {}",
+                            item.first().unwrap().header.as_ref().unwrap().player_name
+                        );
+                        self.state.selected_character = Some(charname);
+                    });
 
                 if let Some(selected_char) = &self.state.selected_character {
                     let x = self
@@ -161,18 +155,12 @@ impl<'a> SaveFileSelector<'a> {
                         })
                         .collect::<Vec<SelectableItem<_>>>();
 
-                    ui.push_id("save_list_scroll", |ui| {
-                        egui::ScrollArea::vertical()
-                            .max_height(ui.available_height())
-                            .show(ui, |ui| {
-                                SelectableItemList::<SaveFile>::new("save_file_list", &x)
-                                    .width(250.)
-                                    .show(ui, |item| {
-                                        tracing::info!("Item in CharSel: {}", item.file_name);
-                                        save_file_selected(item.clone());
-                                    });
-                            });
-                    });
+                    SelectableItemList::<SaveFile>::new("save_file_list", &x)
+                        .width(250.)
+                        .show(ui, |item| {
+                            tracing::info!("Item in CharSel: {}", item.file_name);
+                            save_file_selected(item.clone());
+                        });
                 }
             },
         );
