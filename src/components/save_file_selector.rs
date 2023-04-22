@@ -5,7 +5,11 @@ use crate::{
     parser::parse_header_only,
 };
 use dirs;
-use eframe::{egui, emath::Align};
+use eframe::{
+    egui,
+    emath::Align,
+    epaint::{Shape, Stroke},
+};
 use std::io::Error;
 
 use super::selectable_file_item::{SelectableItem, SelectableItemList};
@@ -115,7 +119,10 @@ impl<'a> SaveFileSelector<'a> {
                 })
                 .collect::<Vec<SelectableItem<_>>>();
             ui.with_layout(egui::Layout::top_down(Align::Min), |ui| {
+                ui.set_max_width(200.);
+
                 ui.heading("Characters");
+                ui.separator();
                 SelectableItemList::<Vec<SaveFile>>::new("character_list", &x)
                     .width(200.)
                     .show(ui, |item| {
@@ -135,6 +142,7 @@ impl<'a> SaveFileSelector<'a> {
                         self.state.selected_character = Some(charname);
                     });
             });
+            ui.separator();
 
             if let Some(selected_char) = &self.state.selected_character {
                 let x = self
@@ -151,12 +159,17 @@ impl<'a> SaveFileSelector<'a> {
                     })
                     .collect::<Vec<SelectableItem<_>>>();
 
-                SelectableItemList::<SaveFile>::new("save_file_list", &x)
-                    .width(250.)
-                    .show(ui, |item| {
-                        tracing::info!("Item in CharSel: {}", item.file_name);
-                        save_file_selected(item.clone());
-                    });
+                ui.with_layout(egui::Layout::top_down(Align::Min), |ui| {
+                    ui.set_max_width(250.);
+                    ui.heading(format!("Saves for {}", selected_char));
+                    ui.separator();
+                    SelectableItemList::<SaveFile>::new("save_file_list", &x)
+                        .width(250.)
+                        .show(ui, |item| {
+                            tracing::info!("Item in CharSel: {}", item.file_name);
+                            save_file_selected(item.clone());
+                        });
+                });
             }
         });
     }
