@@ -75,7 +75,7 @@ impl eframe::App for AppState {
         egui::SidePanel::left("side-panel").show(ctx, |ui| {
             egui::widgets::global_dark_light_mode_switch(ui);
 
-            SaveFileSelector::new(&mut self.saves_state).show(ctx, ui, |item| {
+            SaveFileSelector::new(&mut self.saves_state).show(ui, |item| {
                 self.detail_state.file_path = item.path.clone();
                 match load_saveinfo_from_path(self.detail_state.file_path.to_string()) {
                     Ok(save_file) => {

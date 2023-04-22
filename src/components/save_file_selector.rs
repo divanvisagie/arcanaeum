@@ -96,12 +96,7 @@ impl<'a> SaveFileSelector<'a> {
             .collect()
     }
 
-    pub fn show(
-        &mut self,
-        ctx: &egui::Context,
-        ui: &mut egui::Ui,
-        save_file_selected: impl FnOnce(SaveFile),
-    ) {
+    pub fn show(&mut self, ui: &mut egui::Ui, save_file_selected: impl FnOnce(SaveFile)) {
         ui.vertical(|ui| {
             if ui.button("Select Skyrim save folder").clicked() {
                 tracing::info!("Select folder clicked");
