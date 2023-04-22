@@ -55,24 +55,15 @@ fn main() {
     tracing_subscriber::fmt::init();
     tracing::info!("App booting...");
 
-    let folder_path = get_default_save_folder();
-
-    let app_state = AppState {
-        folder_path: folder_path,
-        error: None,
-        save_file_list: get_files_in_folder( get_default_save_folder().as_str()),
-        detail_state: DetailViewState {
-            file_path: String::from(""),
-            save_info: None,
-            plugins: None,
-            mod_map: HashMap::new(),
-            installed: HashSet::new(),
-        },
-    };
     let mut window_options = eframe::NativeOptions::default();
     window_options.initial_window_size = Some(egui::Vec2::new(1280., 768.));
     window_options.resizable = true;
     window_options.decorated = true;
-    eframe::run_native(Box::new(app_state), window_options);
+    match eframe::run_native("", window_options, Box::new(|_cc| Box::<AppState>::default())) {
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!("Error: {}", e);
+        }
+    }
 }
 

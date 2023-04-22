@@ -1,8 +1,8 @@
-
+use std::collections::HashMap;
+use std::collections::HashSet;
 use eframe::egui::{self};
-use eframe::epi;
 
-use crate::components::save_file_selector::SaveFileSelector;
+use crate::components::save_file_selector::{SaveFileSelector, get_files_in_folder, get_default_save_folder};
 use crate::components::detail_view::{DetailView, DetailViewState};
 use crate::sktypes::skui_value::{SkUIValue, UIValueType};
 use crate::{load_installed, load_mod_map};
@@ -26,9 +26,9 @@ pub fn convert_plugins_to_skui(plugins: &Vec<String>) -> Vec<SkUIValue> {
 }
 
 
-impl epi::App for AppState {
+impl eframe::App for AppState {
 
-    fn update(&mut self, ctx: &egui::CtxRef, _frame: &epi::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
 
         egui::SidePanel::left("side-panel").show(ctx, |ui| {
             egui::widgets::global_dark_light_mode_switch(ui);
@@ -62,8 +62,24 @@ impl epi::App for AppState {
             DetailView::new(&mut self.detail_state).show(ctx, ui);
         });
     }
+  
+}
 
-    fn name(&self) -> &str {
-        "Arcanaeum"
+
+impl Default for AppState {
+    fn default() -> Self {
+        let folder_path = get_default_save_folder();
+        Self {
+            folder_path: folder_path,
+            error: None,
+            save_file_list: get_files_in_folder( get_default_save_folder().as_str()),
+            detail_state: DetailViewState {
+                file_path: String::from(""),
+                save_info: None,
+                plugins: None,
+                mod_map: HashMap::new(),
+                installed: HashSet::new(),
+            },
+        }
     }
 }

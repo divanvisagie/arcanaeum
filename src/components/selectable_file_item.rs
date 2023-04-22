@@ -1,4 +1,4 @@
-use eframe::egui::{self, Align2, Sense};
+use eframe::{egui::{self, Align2, Sense}, epaint::FontId};
 
 pub struct SelectableItemList<'a> {
     pub items: &'a Vec<String>,
@@ -52,12 +52,14 @@ fn create_clickable_row(ui: &mut egui::Ui, value_entry: &str, row_height: f32) -
 
     let text_color = ui.style().visuals.text_color();
 
+    let font_id = FontId::default();
+
     // Draw row content
     ui.painter().text(
         egui::Pos2::new(rect.min.x + 4.0, rect.center().y),
         Align2::LEFT_CENTER,
         value_entry,
-        ui.style().body_text_style,
+        font_id,
         if is_hovered {
             egui::Color32::from_rgb(0, 0, 0)
         } else {

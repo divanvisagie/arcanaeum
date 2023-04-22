@@ -33,7 +33,7 @@ impl <'a> DetailView <'a> {
         }
     }
 
-    pub fn show(&mut self,ctx: &egui::CtxRef , _ui: &mut egui::Ui) {
+    pub fn show(&mut self,ctx: &egui::Context , _ui: &mut egui::Ui) {
         egui::TopBottomPanel::top("top-panel").show(ctx, |ui| {
             ui.heading("Selected Save File");
             ui.label("File path:");
@@ -88,7 +88,7 @@ impl <'a> DetailView <'a> {
             }
 
             egui::ScrollArea::vertical().show(ui, |ui| {
-                egui::Grid::new("values")
+                egui::Grid::new("dtv_values")
                 .striped(true)
                 .min_row_height(22.)
                 .min_col_width(COL_WIDTH)
@@ -114,13 +114,10 @@ impl <'a> DetailView <'a> {
                                         );
                                     } else if self.state.mod_map.contains_key(key) {
                                         let value = self.state.mod_map.get(key).unwrap();
-
-                                        egui::ScrollArea::vertical().show(ui, |ui| {
-                                            for l in value.urls.clone() {
-                                                ui.hyperlink(l.as_str());
-                                                ui.end_row();
-                                            }
-                                        });
+                                        for l in value.urls.clone() {
+                                            ui.hyperlink(l.as_str());
+                                            ui.end_row();
+                                        }
                                     } else {
                                         ui.colored_label(
                                             Color32::from_rgb(200, 50, 50),
