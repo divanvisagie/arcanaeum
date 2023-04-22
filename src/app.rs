@@ -72,32 +72,34 @@ fn map_saves_to_characters(saves: &Vec<SaveFile>) -> HashMap<String, Vec<SaveFil
 
 impl eframe::App for AppState {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::SidePanel::left("side-panel").show(ctx, |ui| {
-            egui::widgets::global_dark_light_mode_switch(ui);
+        egui::SidePanel::left("side-panel")
+            // .max_width(200.)
+            .show(ctx, |ui| {
+                egui::widgets::global_dark_light_mode_switch(ui);
 
-            SaveFileSelector::new(&mut self.saves_state).show(ui, |item| {
-                self.detail_state.file_path = item.path.clone();
-                match load_saveinfo_from_path(self.detail_state.file_path.to_string()) {
-                    Ok(save_file) => {
-                        if save_file.header.is_se {
-                            self.detail_state.mod_map = load_mod_map("skyrimse");
-                            self.detail_state.installed = load_installed("skyrimse");
-                        } else {
-                            self.detail_state.mod_map = load_mod_map("skyrim");
-                            self.detail_state.installed = load_installed("skyrim");
+                SaveFileSelector::new(&mut self.saves_state).show(ui, |item| {
+                    self.detail_state.file_path = item.path.clone();
+                    match load_saveinfo_from_path(self.detail_state.file_path.to_string()) {
+                        Ok(save_file) => {
+                            if save_file.header.is_se {
+                                self.detail_state.mod_map = load_mod_map("skyrimse");
+                                self.detail_state.installed = load_installed("skyrimse");
+                            } else {
+                                self.detail_state.mod_map = load_mod_map("skyrim");
+                                self.detail_state.installed = load_installed("skyrim");
+                            }
+
+                            let plugins = convert_plugins_to_skui(&save_file.plugin_info.plugins);
+
+                            self.detail_state.plugins = Some(plugins);
+                            self.detail_state.save_info = Some(save_file);
                         }
-
-                        let plugins = convert_plugins_to_skui(&save_file.plugin_info.plugins);
-
-                        self.detail_state.plugins = Some(plugins);
-                        self.detail_state.save_info = Some(save_file);
+                        Err(e) => {
+                            self.error = Some(e.to_string());
+                        }
                     }
-                    Err(e) => {
-                        self.error = Some(e.to_string());
-                    }
-                }
+                });
             });
-        });
 
         egui::CentralPanel::default().show(ctx, |ui| {
             DetailView::new(&mut self.detail_state).show(ctx, ui);
