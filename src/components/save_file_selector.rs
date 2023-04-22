@@ -1,10 +1,15 @@
-use eframe::egui;
+use std::io::Read;
+
+use eframe::{egui};
 use dirs;
+use crate::{app::SaveFile, parser::parse_header_only};
+use std::io::Error;
+
 use super::selectable_file_item::SelectableItemList;
 
 pub struct SaveFileSelector<'a> {
     pub save_folder_path: String,
-    save_files: &'a mut Vec<String>,
+    save_files: &'a mut Vec<SaveFile>,
 }
 
 pub fn get_default_save_folder() -> String {
@@ -15,21 +20,43 @@ pub fn get_default_save_folder() -> String {
     path.to_str().unwrap().to_string()
 }
 
-pub fn get_files_in_folder(path: &str) -> Vec<String> {
+fn load_file_buffer(path: &str) -> Result<Vec<u8>, Error> {
+    let mut file = std::fs::File::open(path)?;
+
+    let mut buf: Vec<u8> = Vec::new();
+    file.read_to_end(&mut buf)?;
+    Ok(buf)
+}
+
+// Get all .ess files in the target folder and return them as a vector of SaveFile
+pub fn get_files_in_folder(path: &str) -> Vec<SaveFile> {
     let mut files = Vec::new();
-    // List files in folder_path
+
     for entry in std::fs::read_dir(path).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
         if path.is_file() && path.extension().unwrap() == "ess" {
-            files.push(path.to_str().unwrap().to_string());
+            match load_file_buffer(path.to_str().unwrap()) {
+                Ok(buf) => {
+                    let header = parse_header_only(buf);
+
+                    let save_file = SaveFile {
+                        path: path.to_str().unwrap().to_string(),
+                        header: Some(header)
+                    };
+                    files.push(save_file);
+                }
+                Err(e) => {
+                    tracing::error!("Error loading file: {}", e);
+                }
+            }
         }
     }
     files
 }
 
 impl <'a> SaveFileSelector<'a> {
-    pub fn new(save_files: &'a mut Vec<String>) -> SaveFileSelector {
+    pub fn new(save_files: &'a mut Vec<SaveFile>) -> SaveFileSelector {
         SaveFileSelector {
             save_folder_path: String::from(""),
             save_files: save_files
@@ -56,7 +83,9 @@ impl <'a> SaveFileSelector<'a> {
     }
 
     fn get_save_files(&self) -> Vec<String> {
-        self.save_files.clone()
+        self.save_files.clone().into_iter().map(|f| {
+            f.path
+        }).collect()
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui, save_file_selected: impl FnOnce(&str)) {

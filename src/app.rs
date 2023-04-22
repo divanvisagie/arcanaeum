@@ -7,13 +7,20 @@ use crate::components::detail_view::{DetailView, DetailViewState};
 use crate::sktypes::skui_value::{SkUIValue, UIValueType};
 use crate::{load_installed, load_mod_map};
 use crate::{load_saveinfo_from_path};
+use crate::parser::header::Header;
 
 #[derive(Clone)]
 pub struct AppState {
     pub error: Option<String>,
     pub folder_path: String,
-    pub save_file_list: Vec<String>,
+    pub save_file_list: Vec<SaveFile>,
     pub detail_state: DetailViewState,
+}
+
+#[derive(Clone)]
+pub struct SaveFile {
+    pub path: String,
+    pub header: Option<Header>
 }
 
 pub fn convert_plugins_to_skui(plugins: &Vec<String>) -> Vec<SkUIValue> {
