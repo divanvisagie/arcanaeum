@@ -9,7 +9,7 @@ use crate::parser::{
 
 use self::{header::Header, plugin_info::PluginInfo};
 
-mod header;
+pub mod header;
 mod plugin_info;
 mod utils;
 
@@ -86,6 +86,16 @@ pub fn get_screenshot_data_size(header: &Header) -> usize {
     let multiplier = if header.is_se { 4 } else { 3 };
     let sds = (multiplier * header.screenshot_width * header.screenshot_height) as usize;
     sds
+}
+
+#[allow(dead_code)]
+pub fn parse_header_only(buf: Vec<u8>) -> Header {
+    let buf = buf.as_slice();
+    let cursor = 0;
+    let (_, cursor) = read_charray(buf, cursor, 13);
+    let (_, cursor) = read_u32(buf, cursor);
+    let (header, _) = read_header(buf, cursor);
+    header
 }
 
 pub fn parse(buf: Vec<u8>) -> SaveInfo {

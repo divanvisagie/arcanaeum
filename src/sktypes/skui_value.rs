@@ -18,7 +18,7 @@ fn plugin_type_from_name(name: String) -> PluginType {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 #[allow(dead_code)]
 pub enum PluginType {
     Native,
@@ -27,10 +27,12 @@ pub enum PluginType {
     NotAPlugin,
 }
 
+#[derive(Debug, Clone)]
 pub enum UIValueType {
     Plugin,
 }
 
+#[derive(Debug, Clone)]
 pub struct SkUIValue {
     name: String,
     value: String,

@@ -17,6 +17,7 @@ mod app;
 mod mod_search;
 mod parser;
 mod sktypes;
+mod components;
 
 fn load_mod_map(game: &str) -> HashMap<String, Plugin> {
     let mut map = HashMap::new();
@@ -36,7 +37,7 @@ fn load_installed(game: &str) -> HashSet<String> {
     installed
 }
 
-fn load_save_file(path: String) -> Result<SaveInfo, Error> {
+fn load_saveinfo_from_path(path: String) -> Result<SaveInfo, Error> {
     tracing::info!("Loading file: {:?}", path);
     let mut file = std::fs::File::open(path)?;
 
@@ -51,17 +52,15 @@ fn main() {
     tracing_subscriber::fmt::init();
     tracing::info!("App booting...");
 
-    let app_state = AppState {
-        file_path: String::from(""),
-        save_info: None,
-        mod_map: HashMap::new(),
-        installed: HashSet::new(),
-        error: None,
-        plugins: None,
-    };
     let mut window_options = eframe::NativeOptions::default();
-    window_options.initial_window_size = Some(egui::Vec2::new(800., 768.));
+    window_options.initial_window_size = Some(egui::Vec2::new(1280., 768.));
     window_options.resizable = true;
     window_options.decorated = true;
-    eframe::run_native(Box::new(app_state), window_options);
+    match eframe::run_native("Arcanaeum", window_options, Box::new(|_cc| Box::<AppState>::default())) {
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!("Error: {}", e);
+        }
+    }
 }
+
