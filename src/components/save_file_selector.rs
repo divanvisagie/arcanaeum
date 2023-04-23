@@ -37,27 +37,34 @@ fn load_file_buffer(path: &str) -> Result<Vec<u8>, Error> {
 // Get all .ess files in the target folder and return them as a vector of SaveFile
 pub fn get_files_in_folder(path: &str) -> Vec<SaveFile> {
     let mut files = Vec::new();
-
-    for entry in std::fs::read_dir(path).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        if path.is_file() && path.extension().unwrap() == "ess" {
-            match load_file_buffer(path.to_str().unwrap()) {
-                Ok(buf) => {
-                    let header = parse_header_only(buf);
-                    let file_name = path.file_name().unwrap().to_str().unwrap().to_string();
-
-                    let save_file = SaveFile {
-                        path: path.to_str().unwrap().to_string(),
-                        header: Some(header),
-                        file_name: file_name,
-                    };
-                    files.push(save_file);
-                }
-                Err(e) => {
-                    tracing::error!("Error loading file: {}", e);
+    match std::fs::read_dir(path) {
+        Ok(x) => {
+            for entry in x {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if path.is_file() && path.extension().unwrap() == "ess" {
+                    match load_file_buffer(path.to_str().unwrap()) {
+                        Ok(buf) => {
+                            let header = parse_header_only(buf);
+                            let file_name = path.file_name().unwrap().to_str().unwrap().to_string();
+        
+                            let save_file = SaveFile {
+                                path: path.to_str().unwrap().to_string(),
+                                header: Some(header),
+                                file_name: file_name,
+                            };
+                            files.push(save_file);
+                        }
+                        Err(e) => {
+                            tracing::error!("Error loading file: {}", e);
+                        }
+                    }
                 }
             }
+        }
+        Err(e) => {
+            tracing::error!("Error reading folder: {}", e);
+            return files;
         }
     }
     files
