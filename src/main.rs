@@ -14,10 +14,10 @@ use crate::app::AppState;
 use crate::parser::parse;
 
 mod app;
+mod components;
 mod mod_search;
 mod parser;
 mod sktypes;
-mod components;
 
 fn load_mod_map(game: &str) -> HashMap<String, Plugin> {
     let mut map = HashMap::new();
@@ -52,15 +52,31 @@ fn main() {
     tracing_subscriber::fmt::init();
     tracing::info!("App booting...");
 
+    let icon_data = {
+        let icon_raw = include_bytes!("../assets/icon-256.png");
+        let image = image::load_from_memory(icon_raw).expect("icon must be valid");
+        let image = image.to_rgba8();
+        eframe::IconData {
+            width: image.width(),
+            height: image.height(),
+            rgba: image.into_vec(),
+        }
+    };
+
     let mut window_options = eframe::NativeOptions::default();
     window_options.initial_window_size = Some(egui::Vec2::new(1280., 768.));
     window_options.resizable = true;
     window_options.decorated = true;
-    match eframe::run_native("Arcanaeum", window_options, Box::new(|_cc| Box::<AppState>::default())) {
+    window_options.icon_data = Some(icon_data);
+
+    match eframe::run_native(
+        "Arcanaeum",
+        window_options,
+        Box::new(|_cc| Box::<AppState>::default()),
+    ) {
         Ok(_) => {}
         Err(e) => {
             tracing::error!("Error: {}", e);
         }
     }
 }
-
