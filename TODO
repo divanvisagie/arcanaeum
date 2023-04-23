@@ -1,10 +1,1 @@
-Crashes the app (select from list)
-
-
-Loading file: "C:\\Users\\visag\\OneDrive\\Documents\\My Games\\Skyrim Special Edition\\Saves\\Autosave1_0047E9B2_1_4A616765726D616E6E_DLC1AncestorsGladeWorld_000031_20211231183920_3_1.skse"
-
-
-
-Does not crash the app (select from file)
-
-Loading file: C:\Users\visag\OneDrive\Documents\My Games\Skyrim Special Edition\Saves\Save23_19B50A18_0_4D79726B7572_000RBDruidsPlayerHouseInterior_020640_20230407195332_31_1.ess
+Look into drag and drop: https://github.com/harmony-development/Loqui/blob/master/src/main.rs
