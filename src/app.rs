@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use crate::components::detail_view::DetailView;
 use crate::components::save_file_selector::{
-    get_default_save_folder, get_files_in_folder, SaveFileSelector,
+    get_default_save_folder, read_folder_contents, SaveFileSelector,
 };
 use crate::load_saveinfo_from_path;
 use crate::mod_search::vortex_scanner::Plugin;
@@ -60,7 +60,7 @@ pub fn convert_plugins_to_skui(plugins: &Vec<String>) -> Vec<SkUIValue> {
     skui_plugins
 }
 
-fn map_saves_to_characters(saves: &Vec<SaveFile>) -> HashMap<String, Character> {
+fn group_saves_by_character(saves: &Vec<SaveFile>) -> HashMap<String, Character> {
     let mut character_map: HashMap<String, Character> = HashMap::new();
     for save in saves {
         let character = Character {
@@ -84,34 +84,32 @@ fn map_saves_to_characters(saves: &Vec<SaveFile>) -> HashMap<String, Character> 
 
 impl eframe::App for AppState {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::SidePanel::left("side-panel")
-            // .max_width(200.)
-            .show(ctx, |ui| {
-                egui::widgets::global_dark_light_mode_switch(ui);
+        egui::SidePanel::left("side-panel").show(ctx, |ui| {
+            egui::widgets::global_dark_light_mode_switch(ui);
 
-                SaveFileSelector::new(&mut self.saves_state).show(ui, |item| {
-                    self.detail_state.file_path = item.path.clone();
-                    match load_saveinfo_from_path(self.detail_state.file_path.to_string()) {
-                        Ok(save_file) => {
-                            if save_file.header.is_se {
-                                self.detail_state.mod_map = load_mod_map("skyrimse");
-                                self.detail_state.installed = load_installed("skyrimse");
-                            } else {
-                                self.detail_state.mod_map = load_mod_map("skyrim");
-                                self.detail_state.installed = load_installed("skyrim");
-                            }
-
-                            let plugins = convert_plugins_to_skui(&save_file.plugin_info.plugins);
-
-                            self.detail_state.plugins = Some(plugins);
-                            self.detail_state.save_info = Some(save_file);
+            SaveFileSelector::new(&mut self.saves_state).show(ui, |item| {
+                self.detail_state.file_path = item.path.clone();
+                match load_saveinfo_from_path(self.detail_state.file_path.to_string()) {
+                    Ok(save_file) => {
+                        if save_file.header.is_se {
+                            self.detail_state.mod_map = load_mod_map("skyrimse");
+                            self.detail_state.installed = load_installed("skyrimse");
+                        } else {
+                            self.detail_state.mod_map = load_mod_map("skyrim");
+                            self.detail_state.installed = load_installed("skyrim");
                         }
-                        Err(e) => {
-                            self.error = Some(e.to_string());
-                        }
+
+                        let plugins = convert_plugins_to_skui(&save_file.plugin_info.plugins);
+
+                        self.detail_state.plugins = Some(plugins);
+                        self.detail_state.save_info = Some(save_file);
                     }
-                });
+                    Err(e) => {
+                        self.error = Some(e.to_string());
+                    }
+                }
             });
+        });
 
         egui::CentralPanel::default().show(ctx, |ui| {
             DetailView::new(&mut self.detail_state).show(ctx, ui);
@@ -122,11 +120,11 @@ impl eframe::App for AppState {
 impl Default for AppState {
     fn default() -> Self {
         let folder_path = get_default_save_folder();
-        let saves = get_files_in_folder(folder_path.as_str());
-        let characters = map_saves_to_characters(&saves);
+        let saves = read_folder_contents(folder_path.as_str());
+        let characters = group_saves_by_character(&saves);
 
         Self {
-            folder_path: folder_path,
+            folder_path,
             error: None,
             detail_state: DetailState {
                 file_path: String::from(""),
@@ -136,7 +134,7 @@ impl Default for AppState {
                 installed: HashSet::new(),
             },
             saves_state: SavesState {
-                save_file_list: get_files_in_folder(get_default_save_folder().as_str()),
+                save_file_list: read_folder_contents(get_default_save_folder().as_str()),
                 characters,
                 save_folder_path: get_default_save_folder(),
                 selected_character: None,
