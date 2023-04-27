@@ -1,6 +1,6 @@
 use eframe::{
     egui::{self, Align2, Sense},
-    epaint::FontId,
+    epaint::{FontId, FontFamily},
 };
 
 // Type Representing a selectable item for display in a selectable item list
@@ -48,7 +48,7 @@ where
                         .max_col_width(self.width)
                         .show(ui, |ui| {
                             for si in self.items {
-                                if create_clickable_row(ui, si.title.clone(), 44.) {
+                                if draw_clickable_row(ui, &si, 44.) {
                                     tracing::info!("Selected: {}", si.title);
                                     self.selected = Some(si.value.clone());
                                 }
@@ -64,7 +64,11 @@ where
     }
 }
 
-fn create_clickable_row(ui: &mut egui::Ui, value_entry: String, row_height: f32) -> bool {
+fn draw_clickable_row<T>(
+    ui: &mut egui::Ui,
+    value_entry: &SelectableItem<T>,
+    row_height: f32,
+) -> bool {
     let available_width = ui.available_size().x;
     let (rect, response) =
         ui.allocate_exact_size(egui::Vec2::new(available_width, row_height), Sense::click());
@@ -79,14 +83,14 @@ fn create_clickable_row(ui: &mut egui::Ui, value_entry: String, row_height: f32)
 
     let text_color = ui.style().visuals.text_color();
 
-    let font_id = FontId::default();
+    let font_id = 
 
     // Draw row content
     ui.painter().text(
         egui::Pos2::new(rect.min.x + 4.0, rect.center().y),
         Align2::LEFT_CENTER,
-        value_entry,
-        font_id,
+        value_entry.title.clone(),
+        FontId::default(),
         if is_hovered {
             egui::Color32::from_rgb(0, 0, 0)
         } else {
@@ -94,6 +98,33 @@ fn create_clickable_row(ui: &mut egui::Ui, value_entry: String, row_height: f32)
         },
     );
 
+    let x = FontId {
+          size: 11.0,
+        family: FontFamily::Proportional,
+    };
+    
+    ui.painter().text(
+        egui::Pos2::new(rect.max.x - 30.0, rect.center().y),
+        Align2::RIGHT_CENTER,
+        value_entry.description.clone(),
+        x,
+        if is_hovered {
+            egui::Color32::from_rgb(0, 0, 0)
+        } else {
+            text_color
+        },
+    );
+    //   ui.painter().layout(
+    //         value_entry.title.clone(),
+    //         // Align2::LEFT_CENTER,
+    //         font_id,
+    //         if is_hovered {
+    //             egui::Color32::from_rgb(0, 0, 0)
+    //         } else {
+    //             text_color
+    //         },
+    //         200.,
+    //     );
     // Draw border
     if is_hovered {
         ui.painter().rect_stroke(

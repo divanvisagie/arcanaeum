@@ -47,7 +47,7 @@ pub fn get_files_in_folder(path: &str) -> Vec<SaveFile> {
                         Ok(buf) => {
                             let header = parse_header_only(buf);
                             let file_name = path.file_name().unwrap().to_str().unwrap().to_string();
-        
+
                             let save_file = SaveFile {
                                 path: path.to_str().unwrap().to_string(),
                                 header: Some(header),
@@ -121,7 +121,7 @@ impl<'a> SaveFileSelector<'a> {
                 .iter()
                 .map(|(name, file)| SelectableItem {
                     title: name.to_string(),
-                    description: "".to_string(),
+                    description: "0 KB".to_string(),
                     value: file.clone(),
                 })
                 .collect::<Vec<SelectableItem<_>>>();
