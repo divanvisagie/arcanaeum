@@ -25,7 +25,7 @@ pub struct DetailState {
 #[derive(Clone)]
 pub struct SavesState {
     pub save_file_list: Vec<SaveFile>,
-    pub characters: HashMap<String, Vec<SaveFile>>,
+    pub characters: HashMap<String, Character>,
     pub save_folder_path: String,
     pub selected_character: Option<String>,
 }
@@ -45,6 +45,12 @@ pub struct SaveFile {
     pub header: Option<Header>,
 }
 
+#[derive(Clone)]
+pub struct Character {
+    pub name: String,
+    pub saves: Vec<SaveFile>,
+}
+
 pub fn convert_plugins_to_skui(plugins: &Vec<String>) -> Vec<SkUIValue> {
     let mut skui_plugins = Vec::new();
     for plugin in plugins {
@@ -54,17 +60,23 @@ pub fn convert_plugins_to_skui(plugins: &Vec<String>) -> Vec<SkUIValue> {
     skui_plugins
 }
 
-fn map_saves_to_characters(saves: &Vec<SaveFile>) -> HashMap<String, Vec<SaveFile>> {
-    let mut character_map: HashMap<String, Vec<SaveFile>> = HashMap::new();
+fn map_saves_to_characters(saves: &Vec<SaveFile>) -> HashMap<String, Character> {
+    let mut character_map: HashMap<String, Character> = HashMap::new();
     for save in saves {
+        let character = Character {
+            name: save.header.as_ref().unwrap().player_name.clone(),
+            saves: vec![save.clone()],
+        };
+
         let character_name = save.header.as_ref().unwrap().player_name.clone();
         if character_map.contains_key(&character_name) {
             character_map
                 .get_mut(&character_name)
                 .unwrap()
+                .saves
                 .push(save.clone());
         } else {
-            character_map.insert(character_name, vec![save.clone()]);
+            character_map.insert(character_name, character);
         }
     }
     character_map

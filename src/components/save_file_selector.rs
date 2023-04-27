@@ -1,7 +1,7 @@
 use std::io::Read;
 
 use crate::{
-    app::{SaveFile, SavesState},
+    app::{Character, SaveFile, SavesState},
     parser::parse_header_only,
 };
 use dirs;
@@ -94,19 +94,6 @@ impl<'a> SaveFileSelector<'a> {
         }
     }
 
-    fn get_save_files(&self) -> Vec<SelectableItem<SaveFile>> {
-        self.state
-            .save_file_list
-            .clone()
-            .into_iter()
-            .map(|f| SelectableItem {
-                title: f.file_name.clone(),
-                description: "".to_string(),
-                value: f,
-            })
-            .collect()
-    }
-
     pub fn show(&mut self, ui: &mut egui::Ui, save_file_selected: impl FnOnce(SaveFile)) {
         if ui.button("Select Skyrim save folder").clicked() {
             tracing::info!("Select folder clicked");
@@ -115,13 +102,13 @@ impl<'a> SaveFileSelector<'a> {
         ui.separator();
 
         ui.horizontal_top(|ui| {
-            let x = self
+            let character_list = self
                 .state
                 .characters
                 .iter()
                 .map(|(name, file)| SelectableItem {
                     title: name.to_string(),
-                    description: "0 KB".to_string(),
+                    description: "".to_string(),
                     value: file.clone(),
                 })
                 .collect::<Vec<SelectableItem<_>>>();
@@ -130,38 +117,27 @@ impl<'a> SaveFileSelector<'a> {
 
                 ui.heading("Characters");
                 ui.separator();
-                SelectableItemList::<Vec<SaveFile>>::new("character_list", &x)
+                SelectableItemList::<Character>::new("character_list", &character_list)
                     .width(200.)
                     .show(ui, |item| {
-                        let charname = item
-                            .first()
-                            .unwrap()
-                            .header
-                            .as_ref()
-                            .unwrap()
-                            .player_name
-                            .clone();
-
-                        tracing::info!(
-                            "Item in CharSel: {}",
-                            item.first().unwrap().header.as_ref().unwrap().player_name
-                        );
+                        let charname = item.name;
                         self.state.selected_character = Some(charname);
                     });
             });
             ui.separator();
 
             if let Some(selected_char) = &self.state.selected_character {
-                let x = self
+                let save_file_list = self
                     .state
                     .characters
                     .get(selected_char)
                     .unwrap()
+                    .saves
                     .clone()
                     .into_iter()
                     .map(|f| SelectableItem {
                         title: f.file_name.clone(),
-                        description: "".to_string(),
+                        description: "))".to_string(),
                         value: f,
                     })
                     .collect::<Vec<SelectableItem<_>>>();
@@ -170,7 +146,7 @@ impl<'a> SaveFileSelector<'a> {
                     ui.set_max_width(250.);
                     ui.heading(format!("Saves for {}", selected_char));
                     ui.separator();
-                    SelectableItemList::<SaveFile>::new("save_file_list", &x)
+                    SelectableItemList::<SaveFile>::new("save_file_list", &save_file_list)
                         .width(250.)
                         .show(ui, |item| {
                             tracing::info!("Item in CharSel: {}", item.file_name);

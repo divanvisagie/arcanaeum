@@ -1,6 +1,6 @@
 use eframe::{
     egui::{self, Align2, Sense},
-    epaint::{FontId, FontFamily},
+    epaint::{FontFamily, FontId},
 };
 
 // Type Representing a selectable item for display in a selectable item list
@@ -83,8 +83,6 @@ fn draw_clickable_row<T>(
 
     let text_color = ui.style().visuals.text_color();
 
-    let font_id = 
-
     // Draw row content
     ui.painter().text(
         egui::Pos2::new(rect.min.x + 4.0, rect.center().y),
@@ -99,10 +97,10 @@ fn draw_clickable_row<T>(
     );
 
     let x = FontId {
-          size: 11.0,
+        size: 11.0,
         family: FontFamily::Proportional,
     };
-    
+
     ui.painter().text(
         egui::Pos2::new(rect.max.x - 30.0, rect.center().y),
         Align2::RIGHT_CENTER,
