@@ -35,19 +35,20 @@ fn set_skyrim_resolution(file_path: PathBuf, width: u32, height: u32) -> Result<
     }
 }
 
-pub fn fix_resolution() {
+pub fn fix_resolution() -> Result<(), String> {
     let screen_width = 3440;
     let screen_height = 1440;
 
     if let Some(settings_file_path) = find_skyrim_settings_file() {
-        set_skyrim_resolution(settings_file_path, screen_width, screen_height);
+        set_skyrim_resolution(settings_file_path, screen_width, screen_height)
+    } else {
+        Err("Skyrim settings file not found".to_string())
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::{io::Read, path::PathBuf};
 
     #[test]
     fn test_find_skyrim_settings_file() {
@@ -57,8 +58,7 @@ mod test {
 
     #[test]
     fn test_set_skyrim_resolution() {
-        let path = find_skyrim_settings_file().unwrap();
-        let result = set_skyrim_resolution(path, 3440, 1440);
+        let result = fix_resolution();
         assert!(result.is_ok());
     }
 }
