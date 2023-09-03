@@ -1,6 +1,10 @@
 # Arcanaeum
 
 Arcanaeum will analyse your Skyrim save games to determine which mods you used for that save.
+### Future Plans
+
+- Automatic download and application of mods
+- Automatic fixing of common problems like resolution management for ultrawide monitors
 
 ![Screenshot of Application](docs/screenshot.png)
 
@@ -18,11 +22,6 @@ https://www.nexusmods.com/news/13921
 ### List of skyrim mods can be found here
 
 https://github.com/loot/skyrimse
-
-## Future Plans
-
-- Try an improve the underlying parser library or replace it with own implementation.
-- Improve error handling when Vortex mod manager is not installed.
 
 ## Origin of the name
 
