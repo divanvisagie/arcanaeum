@@ -38,11 +38,12 @@ jobs:
 
     - name: Create GitHub Release and Upload Asset using ghr
       run: |
-        C:\ghr\ghr_v0.13.0_windows_amd64\ghr.exe -t ${{ secrets.GITHUB_TOKEN }} \
+        $tagName = "${{ github.ref }}".replace('refs/tags/', '')
+        C:\tools\ghr_v0.13.0_windows_amd64\ghr.exe -t ${{ secrets.GITHUB_TOKEN }} \
             -u ${{ github.repository_owner }} \
             -r ${{ github.event.repository.name }} \
             -c ${{ github.sha }} \
-            -n "Release ${{ github.ref }}" \
-            -b "Release notes for ${{ github.ref }}" \
+            -n "Release $tagName" \
+            -b "Release notes for $tagName" \
             -replace \
-            ${{ github.ref }} ./target/release/arcanaeum.exe
+            $tagName ./target/release/arcanaeum.exe
