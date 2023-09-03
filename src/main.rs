@@ -17,6 +17,7 @@ use crate::save_file_parser::parse;
 mod app;
 mod components;
 mod config;
+mod features;
 mod mod_search;
 mod save_file_parser;
 mod sktypes;
