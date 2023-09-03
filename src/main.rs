@@ -21,6 +21,7 @@ mod features;
 mod mod_search;
 mod save_file_parser;
 mod sktypes;
+mod utils;
 
 fn load_mod_map(game: &str) -> HashMap<String, Plugin> {
     let mut map = HashMap::new();

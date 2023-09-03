@@ -7,7 +7,7 @@ fn find_skyrim_settings_file() -> Option<PathBuf> {
     if let Some(mut doc_dir) = dirs::document_dir() {
         doc_dir.push("My Games");
         doc_dir.push("Skyrim Special Edition");
-        doc_dir.push("Skyrim.ini");
+        doc_dir.push("SkyrimPrefs.ini");
         if doc_dir.exists() {
             return Some(doc_dir);
         }
@@ -27,6 +27,8 @@ fn set_skyrim_resolution(file_path: PathBuf, width: u32, height: u32) -> Result<
 
     section.insert("iSize W", width.to_string());
     section.insert("iSize H", height.to_string());
+    section.insert("bBorderless", "1".to_string());
+    section.insert("bFull Screen", "1".to_string());
 
     if conf.write_to_file(&file_path).is_ok() {
         Ok(())
