@@ -1,8 +1,9 @@
 name: Release
 
 on:
-  release:
-    types: [created]
+  push:
+    tags:
+      - 'v*.*.*'  # Trigger this workflow for tags like v1.0.0
 
 env:
   CARGO_TERM_COLOR: always
@@ -23,15 +24,23 @@ jobs:
 
     - name: Build
       run: cargo rustc --release -- -Clink-args="/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup"
-    
+
     - name: Debug list files
       run: dir ./target/release/
 
-    - name: Upload to GitHub Releases
-      if: startsWith(github.ref, 'refs/tags/')  # Only upload on tagged commits
-      uses: actions/upload-release-asset@v1
-      with:
-        upload_url: ${{ github.event.release.upload_url }} # Provided by GitHub
-        asset_path: ./target/release/arcanaeum.exe  # Replace with your binary name
-        asset_name: arcanaeum.exe  # Replace with your binary name
-        asset_content_type: application/octet-stream
+    - name: Install ghr
+      run: |
+        Invoke-WebRequest -Uri "https://github.com/tcnksm/ghr/releases/download/v0.13.0/ghr_v0.13.0_windows_amd64.zip" -OutFile "ghr.zip"
+        Expand-Archive -Path "ghr.zip" -DestinationPath "C:\ghr"
+        Add-Content -Path $env:GITHUB_PATH -Value "C:\ghr"
+
+    - name: Create GitHub Release and Upload Asset using ghr
+      run: |
+        ghr -t ${{ secrets.GITHUB_TOKEN }} \
+            -u ${{ github.repository_owner }} \
+            -r ${{ github.event.repository.name }} \
+            -c ${{ github.sha }} \
+            -n "Release ${{ github.ref }}" \
+            -b "Release notes for ${{ github.ref }}" \
+            -replace \
+            ${{ github.ref }} ./target/release/arcanaeum.exe
