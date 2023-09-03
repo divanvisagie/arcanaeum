@@ -1,7 +1,7 @@
 use lz4_flex::decompress;
 use std::fmt::{self, Formatter};
 
-use crate::parser::{
+use crate::save_file_parser::{
     header::read_header,
     plugin_info::read_plugin_info,
     utils::{read_bytes, read_charray, read_u32, read_u8, se_only},

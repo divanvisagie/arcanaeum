@@ -2,7 +2,7 @@ use std::{collections::HashMap, io::Read};
 
 use crate::{
     app::{Character, SaveFile, SavesState},
-    parser::parse_header_only,
+    save_file_parser::parse_header_only,
 };
 use dirs;
 use eframe::{egui, emath::Align};

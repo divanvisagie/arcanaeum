@@ -8,17 +8,17 @@ use eframe::egui;
 use mod_search::vortex_scanner::get_installed_from_all_profiles;
 use mod_search::vortex_scanner::get_masterlist_data;
 use mod_search::vortex_scanner::Plugin;
-use parser::SaveInfo;
+use save_file_parser::SaveInfo;
 
 use crate::app::AppState;
 use crate::config::create_config_if_not_exists;
-use crate::parser::parse;
+use crate::save_file_parser::parse;
 
 mod app;
 mod components;
 mod config;
 mod mod_search;
-mod parser;
+mod save_file_parser;
 mod sktypes;
 
 fn load_mod_map(game: &str) -> HashMap<String, Plugin> {

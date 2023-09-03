@@ -8,8 +8,8 @@ use crate::components::save_file_selector::{
 };
 use crate::load_saveinfo_from_path;
 use crate::mod_search::vortex_scanner::Plugin;
-use crate::parser::header::Header;
-use crate::parser::SaveInfo;
+use crate::save_file_parser::header::Header;
+use crate::save_file_parser::SaveInfo;
 use crate::sktypes::skui_value::{SkUIValue, UIValueType};
 use crate::{load_installed, load_mod_map};
 
