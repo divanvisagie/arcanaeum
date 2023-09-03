@@ -168,7 +168,7 @@ dependencies = [
 
 [[package]]
 name = "arcanaeum"
-version = "0.2.3"
+version = "0.2.9"
 dependencies = [
  "dirs 5.0.0",
  "eframe",
