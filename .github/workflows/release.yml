@@ -32,11 +32,13 @@ jobs:
       run: |
         Invoke-WebRequest -Uri "https://github.com/tcnksm/ghr/releases/download/v0.13.0/ghr_v0.13.0_windows_amd64.zip" -OutFile "ghr.zip"
         Expand-Archive -Path "ghr.zip" -DestinationPath "C:\ghr"
-        Add-Content -Path $env:GITHUB_PATH -Value "C:\ghr"
+
+    - name: Debug list ghr directory
+      run: dir C:\ghr
 
     - name: Create GitHub Release and Upload Asset using ghr
       run: |
-        ghr -t ${{ secrets.GITHUB_TOKEN }} \
+        C:\ghr\ghr.exe -t ${{ secrets.GITHUB_TOKEN }} \
             -u ${{ github.repository_owner }} \
             -r ${{ github.event.repository.name }} \
             -c ${{ github.sha }} \
