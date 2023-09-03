@@ -36,6 +36,7 @@ pub struct AppState {
     pub folder_path: String,
     pub detail_state: DetailState,
     pub saves_state: SavesState,
+    pub show_window: bool,
 }
 
 #[derive(Clone)]
@@ -86,6 +87,17 @@ impl eframe::App for AppState {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::SidePanel::left("side-panel").show(ctx, |ui| {
             egui::widgets::global_dark_light_mode_switch(ui);
+            if ui.button("Fix resolution").clicked() {
+                //pop up a new window with a button to fix the resolution
+                self.show_window = true;
+            }
+            if self.show_window {
+                egui::Window::new("Resolution Fixer")
+                    .open(&mut self.show_window)
+                    .show(ctx, |ui| {
+                        ui.label("Hello from the new window!");
+                    });
+            }
 
             SaveFileSelector::new(&mut self.saves_state).show(ui, |item| {
                 self.detail_state.file_path = item.path.clone();
@@ -124,6 +136,7 @@ impl Default for AppState {
         let characters = group_saves_by_character(&saves);
 
         Self {
+            show_window: false,
             folder_path,
             error: None,
             detail_state: DetailState {

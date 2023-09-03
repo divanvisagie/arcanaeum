@@ -7,4 +7,7 @@ First of all we have to set the display settings in the ini file under `[Display
 [Display]
 iSize H=1440
 iSize W=3440
+bFull Screen=1
+bBorderless=0
 ```
+
