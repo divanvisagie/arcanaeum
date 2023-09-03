@@ -1,11 +1,8 @@
 name: Release
 
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - 'v*.*.*'  # Trigger this workflow for tags like v1.0.0
+  release:
+    types: [created]
 
 env:
   CARGO_TERM_COLOR: always
