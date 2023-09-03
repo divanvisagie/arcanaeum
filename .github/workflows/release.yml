@@ -26,6 +26,9 @@ jobs:
 
     - name: Build
       run: cargo rustc --release -- -Clink-args="/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup"
+    
+    - name: Debug list files
+      run: dir ./target/release/
 
     - name: Upload to GitHub Releases
       if: startsWith(github.ref, 'refs/tags/')  # Only upload on tagged commits
