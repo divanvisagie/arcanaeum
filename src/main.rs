@@ -11,10 +11,12 @@ use mod_search::vortex_scanner::Plugin;
 use parser::SaveInfo;
 
 use crate::app::AppState;
+use crate::config::create_config_if_not_exists;
 use crate::parser::parse;
 
 mod app;
 mod components;
+mod config;
 mod mod_search;
 mod parser;
 mod sktypes;
@@ -51,6 +53,8 @@ fn load_saveinfo_from_path(path: String) -> Result<SaveInfo, Error> {
 fn main() {
     tracing_subscriber::fmt::init();
     tracing::info!("App booting...");
+
+    create_config_if_not_exists();
 
     let icon_data = {
         let icon_raw = include_bytes!("../assets/icon-256.png");
