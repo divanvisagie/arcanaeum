@@ -106,8 +106,6 @@ impl<'a> SaveFileSelector<'a> {
                 self.state.save_folder_path = String::from(path_buf.to_str().unwrap());
 
                 tracing::info!("Selected folder: {}", self.state.save_folder_path);
-
-                // *self.state.save_file_list = get_files_in_folder(&self.state.save_folder_path)
             }
             None => tracing::error!("No folder selected"),
         }

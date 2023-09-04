@@ -36,7 +36,8 @@ pub struct AppState {
     pub folder_path: String,
     pub detail_state: DetailState,
     pub saves_state: SavesState,
-    pub show_window: bool,
+    pub show_resolution_window: bool,
+    pub show_settings_window: bool,
 }
 
 #[derive(Clone)]
@@ -89,11 +90,18 @@ impl eframe::App for AppState {
             egui::widgets::global_dark_light_mode_switch(ui);
             if ui.button("Fix resolution").clicked() {
                 //pop up a new window with a button to fix the resolution
-                self.show_window = true;
+                self.show_resolution_window = true;
             }
-            if self.show_window {
+            if self.show_resolution_window {
                 egui::Window::new("Resolution Fixer")
-                    .open(&mut self.show_window)
+                    .open(&mut self.show_resolution_window)
+                    .show(ctx, |ui| {
+                        ui.label("Hello from the new window!");
+                    });
+            }
+            if self.show_settings_window {
+                egui::Window::new("Settings")
+                    .open(&mut self.show_resolution_window)
                     .show(ctx, |ui| {
                         ui.label("Hello from the new window!");
                     });
@@ -136,7 +144,8 @@ impl Default for AppState {
         let characters = group_saves_by_character(&saves);
 
         Self {
-            show_window: false,
+            show_settings_window: false,
+            show_resolution_window: false,
             folder_path,
             error: None,
             detail_state: DetailState {
