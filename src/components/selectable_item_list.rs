@@ -129,6 +129,7 @@ fn draw_clickable_row<T>(
             rect,
             2.0,
             egui::Stroke::new(1.0, egui::Color32::from_gray(180)),
+            egui::StrokeKind::Inside,
         );
     }
 

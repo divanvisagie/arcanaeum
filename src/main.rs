@@ -62,23 +62,26 @@ fn main() {
         let icon_raw = include_bytes!("../assets/icon-256.png");
         let image = image::load_from_memory(icon_raw).expect("icon must be valid");
         let image = image.to_rgba8();
-        eframe::IconData {
+        egui::IconData {
             width: image.width(),
             height: image.height(),
             rgba: image.into_vec(),
         }
     };
 
-    let mut window_options = eframe::NativeOptions::default();
-    window_options.initial_window_size = Some(egui::Vec2::new(1280., 768.));
-    window_options.resizable = true;
-    window_options.decorated = true;
-    window_options.icon_data = Some(icon_data);
+    let window_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size(egui::Vec2::new(1280., 768.))
+            .with_resizable(true)
+            .with_decorations(true)
+            .with_icon(icon_data),
+        ..Default::default()
+    };
 
     match eframe::run_native(
         "Arcanaeum",
         window_options,
-        Box::new(|_cc| Box::<AppState>::default()),
+        Box::new(|_cc| Ok(Box::<AppState>::default())),
     ) {
         Ok(_) => {}
         Err(e) => {

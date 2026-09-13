@@ -22,13 +22,13 @@ impl <'a> DetailView <'a> {
         }
     }
 
-    pub fn show(&mut self,ctx: &egui::Context , _ui: &mut egui::Ui) {
-        egui::TopBottomPanel::top("top-panel").show(ctx, |ui| {
+    pub fn show(&mut self, ui: &mut egui::Ui) {
+        egui::Panel::top("top-panel").show(ui, |ui| {
             ui.heading("Selected Save File");
             ui.label("File path:");
             ui.label(&self.state.file_path);
         });
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             egui::Grid::new("values")
             .striped(true)
             .min_row_height(22.)

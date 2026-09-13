@@ -85,9 +85,9 @@ fn group_saves_by_character(saves: &Vec<SaveFile>) -> HashMap<String, Character>
 }
 
 impl eframe::App for AppState {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::SidePanel::left("side-panel").show(ctx, |ui| {
-            egui::widgets::global_dark_light_mode_switch(ui);
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        egui::Panel::left("side-panel").show(ui, |ui| {
+            egui::widgets::global_theme_preference_switch(ui);
             if ui.button("Fix resolution").clicked() {
                 //pop up a new window with a button to fix the resolution
                 self.show_resolution_window = true;
@@ -95,14 +95,14 @@ impl eframe::App for AppState {
             if self.show_resolution_window {
                 egui::Window::new("Resolution Fixer")
                     .open(&mut self.show_resolution_window)
-                    .show(ctx, |ui| {
+                    .show(ui.ctx(), |ui| {
                         ui.label("Hello from the new window!");
                     });
             }
             if self.show_settings_window {
                 egui::Window::new("Settings")
                     .open(&mut self.show_resolution_window)
-                    .show(ctx, |ui| {
+                    .show(ui.ctx(), |ui| {
                         ui.label("Hello from the new window!");
                     });
             }
@@ -131,8 +131,8 @@ impl eframe::App for AppState {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            DetailView::new(&mut self.detail_state).show(ctx, ui);
+        egui::CentralPanel::default().show(ui, |ui| {
+            DetailView::new(&mut self.detail_state).show(ui);
         });
     }
 }
