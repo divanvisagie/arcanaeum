@@ -1,11 +1,8 @@
-use std::env;
 use std::fs;
 use std::path::PathBuf;
 
 fn get_config_folder_path() -> PathBuf {
-    let app_data_path = env::var("APPDATA").unwrap();
-    let mut path_buf = PathBuf::new();
-    path_buf.push(app_data_path);
+    let mut path_buf = dirs::config_dir().expect("Could not determine config directory");
     path_buf.push("Arcaneum");
     path_buf
 }
@@ -27,13 +24,10 @@ fn create_config_file_if_not_exists() {
 }
 
 fn create_config_folder_if_not_exists() {
-    let app_data_path = env::var("APPDATA").unwrap();
-    let mut path_buf = PathBuf::new();
-    path_buf.push(app_data_path);
-    path_buf.push("Arcaneum");
+    let path_buf = get_config_folder_path();
 
     if !path_buf.exists() {
-        fs::create_dir(path_buf).expect("Could not create config directory");
+        fs::create_dir_all(path_buf).expect("Could not create config directory");
     }
 }
 
@@ -49,10 +43,7 @@ mod tests {
     #[test]
     fn test_create_config_if_not_exists() {
         create_config_if_not_exists();
-        let app_data_path = env::var("APPDATA").unwrap();
-        let mut path_buf = PathBuf::new();
-        path_buf.push(app_data_path);
-        path_buf.push("Arcaneum");
+        let path_buf = get_config_folder_path();
         assert!(path_buf.exists());
     }
 }

@@ -1,6 +1,14 @@
-use std::{env, fs, io::Error, path::PathBuf};
+use std::{
+    fs,
+    io::{Error, ErrorKind},
+    path::PathBuf,
+};
 
 use serde::{Deserialize, Serialize};
+
+fn vortex_config_dir() -> Result<PathBuf, Error> {
+    dirs::config_dir().ok_or_else(|| Error::new(ErrorKind::NotFound, "Could not determine config directory"))
+}
 
 #[derive(Clone, Debug)]
 pub struct Plugin {
@@ -22,9 +30,7 @@ struct MasterListFileType {
 }
 
 pub fn get_masterlist_data(game: &str) -> Result<Vec<Plugin>, Error> {
-    let app_data_path = env::var("APPDATA").unwrap();
-    let mut path_buf = PathBuf::new();
-    path_buf.push(app_data_path);
+    let mut path_buf = vortex_config_dir()?;
     path_buf.push("Vortex");
     path_buf.push(game);
     path_buf.push("masterlist");
@@ -39,9 +45,7 @@ pub fn get_masterlist_data(game: &str) -> Result<Vec<Plugin>, Error> {
 }
 
 pub fn get_profile_data(profile_name: &str) -> Result<Vec<String>, Error> {
-    let app_data_path = env::var("APPDATA").unwrap();
-    let mut path_buf = PathBuf::new();
-    path_buf.push(app_data_path);
+    let mut path_buf = vortex_config_dir()?;
     path_buf.push("Vortex");
     path_buf.push("skyrimse");
     path_buf.push("profiles");
@@ -64,9 +68,7 @@ pub fn get_profile_data(profile_name: &str) -> Result<Vec<String>, Error> {
 }
 
 pub fn get_profiles(game: &str) -> Result<Vec<String>, Error> {
-    let app_data_path = env::var("APPDATA").unwrap();
-    let mut path_buf = PathBuf::new();
-    path_buf.push(app_data_path);
+    let mut path_buf = vortex_config_dir()?;
     path_buf.push("Vortex");
     path_buf.push(game);
     path_buf.push("profiles");

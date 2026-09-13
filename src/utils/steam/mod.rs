@@ -28,7 +28,8 @@ mod test {
 
     #[test]
     fn test_read_steam_library_folders() {
-        let steam_path = PathBuf::from("C:\\Program Files (x86)\\Steam");
+        let home = dirs::home_dir().expect("Could not determine home directory");
+        let steam_path = home.join(".local/share/Steam");
         let libraries = read_steam_library_folders(&steam_path).unwrap();
         assert!(libraries.len() > 0);
     }

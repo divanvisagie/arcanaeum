@@ -1,19 +1,8 @@
 extern crate ini;
 use ini::Ini;
 
+use crate::utils::skyrim_se::find_skyrim_settings_file;
 use std::path::PathBuf;
-
-fn find_skyrim_settings_file() -> Option<PathBuf> {
-    if let Some(mut doc_dir) = dirs::document_dir() {
-        doc_dir.push("My Games");
-        doc_dir.push("Skyrim Special Edition");
-        doc_dir.push("SkyrimPrefs.ini");
-        if doc_dir.exists() {
-            return Some(doc_dir);
-        }
-    }
-    None
-}
 
 fn set_skyrim_resolution(file_path: PathBuf, width: u32, height: u32) -> Result<(), String> {
     let mut conf = match Ini::load_from_file(&file_path) {

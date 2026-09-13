@@ -1,10 +1,9 @@
-use std::{path::PathBuf, process::Command};
+use std::path::PathBuf;
+
+use crate::utils::skyrim_se::find_skyrim_documents_path;
 
 pub fn find_skyrim_se_install_path() -> Option<PathBuf> {
-    let mut path = dirs::document_dir()?;
-    path.push("My Games");
-    path.push("Skyrim Special Edition");
-    Some(path)
+    find_skyrim_documents_path()
 }
 
 pub fn download_and_install_skse() {
@@ -13,11 +12,9 @@ pub fn download_and_install_skse() {
 }
 
 pub fn lanch_game() {
-    let mut cmd = Command::new("cmd");
-    cmd.arg("/C");
-    cmd.arg("start");
-    cmd.arg("steam://rungameid/489830");
-    cmd.spawn().expect("failed to execute process");
+    if let Err(e) = webbrowser::open("steam://rungameid/489830") {
+        tracing::error!("Failed to launch game: {}", e);
+    }
 }
 
 #[cfg(test)]
