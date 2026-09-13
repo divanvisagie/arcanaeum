@@ -3,6 +3,7 @@ use std::{collections::HashMap, io::Read};
 use crate::{
     app::{Character, SaveFile, SavesState},
     save_file_parser::parse_header_only,
+    utils::skyrim_se::find_default_save_folder,
 };
 use dirs;
 use eframe::{egui, emath::Align};
@@ -15,7 +16,11 @@ pub struct SaveFileSelector<'a> {
 }
 
 pub fn get_default_save_folder() -> String {
-    let mut path = dirs::document_dir().unwrap();
+    if let Some(path) = find_default_save_folder() {
+        return path.to_str().unwrap().to_string();
+    }
+
+    let mut path = dirs::document_dir().unwrap_or_default();
     path.push("My Games");
     path.push("Skyrim Special Edition");
     path.push("Saves");
