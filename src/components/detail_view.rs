@@ -96,7 +96,7 @@ impl <'a> DetailView <'a> {
                                 sktypes::skui_value::PluginType::Mod => {
                                     let key = &value_entry.get_value_string();
 
-                                    if self.state.installed.contains(key) {
+                                    if self.state.installed.contains(&key.to_lowercase()) {
                                         ui.colored_label(
                                             Color32::from_rgb(50, 200, 50),
                                             "Installed",

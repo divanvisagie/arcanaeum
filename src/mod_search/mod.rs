@@ -1,3 +1,4 @@
+pub mod data_scanner;
 pub mod vortex_scanner;
 use eframe::egui::TextBuffer;
 use std::collections::HashMap;

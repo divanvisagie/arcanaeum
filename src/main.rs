@@ -5,7 +5,7 @@ use std::io::Read;
 
 use eframe::egui;
 
-use mod_search::vortex_scanner::get_installed_from_all_profiles;
+use mod_search::data_scanner::scan_installed_plugins;
 use mod_search::vortex_scanner::get_masterlist_data;
 use mod_search::vortex_scanner::Plugin;
 use save_file_parser::SaveInfo;
@@ -13,6 +13,7 @@ use save_file_parser::SaveInfo;
 use crate::app::AppState;
 use crate::config::create_config_if_not_exists;
 use crate::save_file_parser::parse;
+use crate::utils::skyrim_se::find_skyrim_data_path;
 
 mod app;
 mod components;
@@ -33,12 +34,17 @@ fn load_mod_map(game: &str) -> HashMap<String, Plugin> {
     map
 }
 
-fn load_installed(game: &str) -> HashSet<String> {
-    let mut installed = HashSet::new();
-    for p in get_installed_from_all_profiles(game) {
-        installed.insert(p);
+/// Plugins actually present on disk, found by scanning the game's `Data`
+/// directory directly rather than reading a mod manager's config - this
+/// picks up manually installed mods, not just ones a manager tracks.
+fn load_installed() -> HashSet<String> {
+    match find_skyrim_data_path() {
+        Some(data_path) => scan_installed_plugins(&data_path),
+        None => {
+            tracing::error!("Could not find Skyrim Data directory to scan for installed plugins.");
+            HashSet::new()
+        }
     }
-    installed
 }
 
 fn load_saveinfo_from_path(path: String) -> Result<SaveInfo, Error> {

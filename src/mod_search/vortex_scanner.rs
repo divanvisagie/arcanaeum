@@ -44,61 +44,6 @@ pub fn get_masterlist_data(game: &str) -> Result<Vec<Plugin>, Error> {
     Ok(plugin_master_list)
 }
 
-pub fn get_profile_data(profile_name: &str) -> Result<Vec<String>, Error> {
-    let mut path_buf = vortex_config_dir()?;
-    path_buf.push("Vortex");
-    path_buf.push("skyrimse");
-    path_buf.push("profiles");
-    path_buf.push(profile_name);
-    path_buf.push("plugins.txt");
-
-    let file_contents = fs::read_to_string(path_buf)?;
-    let plugins_in_profile = file_contents
-        .lines()
-        .map(|p| p.to_string())
-        .filter(|p| p.starts_with("*"))
-        .map(|s| {
-            let mut chars = s.chars();
-            chars.next(); //remove first char
-            chars.as_str().to_string()
-        })
-        .into_iter()
-        .collect();
-    Ok(plugins_in_profile)
-}
-
-pub fn get_profiles(game: &str) -> Result<Vec<String>, Error> {
-    let mut path_buf = vortex_config_dir()?;
-    path_buf.push("Vortex");
-    path_buf.push(game);
-    path_buf.push("profiles");
-
-    let read = fs::read_dir(path_buf)?;
-
-    let items = read
-        .map(|i| i.unwrap().file_name())
-        .map(|i| i.to_str().unwrap().to_string())
-        .collect();
-    Ok(items)
-}
-
-pub fn get_installed_from_all_profiles(game: &str) -> Vec<String> {
-    let mut all = Vec::new();
-    if let Ok(profiles) = get_profiles(game) {
-        for prof in profiles {
-            match get_profile_data(&prof) {
-                Ok(plugins_in_profile) => {
-                    all.extend(plugins_in_profile);
-                }
-                _ => tracing::error!("Cannot read plugins from profile: {prof}"),
-            }
-        }
-    } else {
-        tracing::error!("Could not find any vortex profiles.");
-    }
-    all
-}
-
 pub fn parse_plugin(plugin_file_type: &PluginFileType) -> Plugin {
     let name = plugin_file_type.name.clone();
     let mut urls = Vec::new();
@@ -122,11 +67,5 @@ mod tests {
     fn get_masterlist_data_test() {
         let plugins = get_masterlist_data("skyrimse");
         println!("{:?}", plugins);
-    }
-
-    #[test]
-    fn get_profile_data_test() {
-        let p = get_installed_from_all_profiles("skyrimse");
-        println!("String interpolation yay {:?}", p)
     }
 }

@@ -113,11 +113,10 @@ impl eframe::App for AppState {
                     Ok(save_file) => {
                         if save_file.header.is_se {
                             self.detail_state.mod_map = load_mod_map("skyrimse");
-                            self.detail_state.installed = load_installed("skyrimse");
                         } else {
                             self.detail_state.mod_map = load_mod_map("skyrim");
-                            self.detail_state.installed = load_installed("skyrim");
                         }
+                        self.detail_state.installed = load_installed();
 
                         let plugins = convert_plugins_to_skui(&save_file.plugin_info.plugins);
 
