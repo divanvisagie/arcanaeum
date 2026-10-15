@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="leather" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7a3b26"/>
+      <stop offset="1" stop-color="#4a2014"/>
+    </linearGradient>
+    <linearGradient id="spine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3a170d"/>
+      <stop offset="1" stop-color="#5c2918"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f3d58a"/>
+      <stop offset="1" stop-color="#b8892f"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#9fe0ff" stop-opacity="0.85"/>
+      <stop offset="0.55" stop-color="#4aa8e8" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#4aa8e8" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- Shadow -->
+  <ellipse cx="66" cy="117" rx="44" ry="5" fill="#000" opacity="0.25"/>
+  <!-- Page block, seen at the fore edge and bottom -->
+  <rect x="26" y="15" width="84" height="100" rx="5" fill="#efe3c4"/>
+  <path d="M102 20 v90 M105 21 v88 M108 23 v84" stroke="#cbb88f" stroke-width="1.2"/>
+  <!-- Cover -->
+  <rect x="18" y="10" width="86" height="102" rx="6" fill="url(#leather)"/>
+  <rect x="18" y="10" width="15" height="102" rx="6" fill="url(#spine)"/>
+  <path d="M33 10 v102" stroke="#2a0f08" stroke-width="1.5"/>
+  <path d="M20 26 h13 M20 96 h13" stroke="url(#gold)" stroke-width="3"/>
+  <!-- Tooled border -->
+  <rect x="39" y="17" width="58" height="88" rx="3" fill="none" stroke="#c99a45" stroke-width="1.5" opacity="0.8"/>
+  <!-- Corner pieces -->
+  <path d="M104 10 h-12 l12 12 z M104 112 h-12 l12 -12 z" fill="url(#gold)"/>
+  <!-- Arcane seal -->
+  <circle cx="68" cy="61" r="27" fill="url(#glow)"/>
+  <circle cx="68" cy="61" r="19" fill="none" stroke="url(#gold)" stroke-width="3"/>
+  <circle cx="68" cy="61" r="13.5" fill="none" stroke="url(#gold)" stroke-width="1.5"/>
+  <path d="M68 48.5 L78.8 67.2 L57.2 67.2 Z" fill="none" stroke="#f3d58a" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M68 38.5 v4 M68 79.5 v4 M45.5 61 h4 M86.5 61 h4" stroke="url(#gold)" stroke-width="2.2" stroke-linecap="round"/>
+  <g fill="#f3d58a"><circle cx="68" cy="48.5" r="1.9"/><circle cx="78.8" cy="67.2" r="1.9"/><circle cx="57.2" cy="67.2" r="1.9"/></g>
+  <circle cx="68" cy="61" r="3.2" fill="#e8f8ff"/>
+  <!-- Clasp across the fore edge -->
+  <rect x="96" y="53" width="16" height="16" rx="3" fill="url(#gold)"/>
+  <rect x="100" y="57" width="8" height="8" rx="1.5" fill="#4a2014"/>
+</svg>

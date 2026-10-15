@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Arcanaeum
+GenericName=Skyrim Save and Mod Manager
+Comment=See which mods each Skyrim save needs, and switch plugins on or off
+Exec=arcanaeum
+Icon=com.github.divanvisagie.Arcanaeum
+Terminal=false
+Categories=Game;
+Keywords=skyrim;saves;mods;plugins;load order;
+StartupNotify=true
+StartupWMClass=com.github.divanvisagie.Arcanaeum

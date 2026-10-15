@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-use crate::utils::skyrim_se::find_skyrim_documents_path;
+use crate::game;
 
 pub fn find_skyrim_se_install_path() -> Option<PathBuf> {
-    find_skyrim_documents_path()
+    game::documents_dir()
 }
 
 pub fn download_and_install_skse() {

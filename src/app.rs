@@ -1,17 +1,19 @@
-//! The window: Patina's frame and title bar, the characters and their saves
-//! in a sidebar, the chosen save's plugins in the middle, and a status bar.
+//! The window: Patina's frame and title bar; a sidebar with the game's load
+//! order and the characters and their saves; the chosen one in the middle;
+//! a status bar. Plugins switched on or off wait for Apply (ADR-0006).
 
 use std::path::PathBuf;
 
-use egui::Color32;
 use patina::frame::{self, TitleBar};
-use patina::skin::{self, Hex, Skin};
-use serde::Deserialize;
+use patina::skin::{self, Skin};
+use skyplug_core::saves::{self, Sex};
+use skyplug_core::GamePaths;
 
-use crate::analysis::{Analysis, Kind, PluginFilter, Status};
+use crate::analysis::{self, Analysis, Kind, Pending, PluginFilter, Row, Setup};
 use crate::config::Config;
+use crate::game;
 use crate::loader::{Characters, Command, Loader, Update};
-use crate::save_file_parser::header::Sex;
+use crate::table::{plugin_table, Colours, SkinColours};
 
 /// Stock egui until the user picks a skin.
 const HOME_SKIN: &str = skin::DEFAULT_SKIN;
@@ -24,49 +26,42 @@ const SAVE_IMAGE_SHARE: f32 = 0.4;
 /// How long a status bar notice stays up, in seconds.
 const NOTICE_FOR: f64 = 3.0;
 
-/// The `[app.arcanaeum]` skin section: the colours of a plugin's status.
-/// Each falls back to the active visuals.
-#[derive(Debug, Default, Deserialize)]
-struct SkinColours {
-    /// On disk, ready to load.
-    installed: Option<Hex>,
-    /// Not on disk, with a download link from the masterlist.
-    available: Option<Hex>,
-    /// Not on disk and nowhere to get it.
-    missing: Option<Hex>,
-    /// Base game and Creation Club plugins.
-    included: Option<Hex>,
-}
-
-struct Colours {
-    installed: Color32,
-    available: Color32,
-    missing: Color32,
-    included: Color32,
-}
-
-impl SkinColours {
-    fn resolve(&self, v: &egui::Visuals) -> Colours {
-        let or = |h: Option<Hex>, c: Color32| h.map_or(c, |h| h.0);
-        Colours {
-            installed: or(self.installed, v.text_color()),
-            available: or(self.available, v.warn_fg_color),
-            missing: or(self.missing, v.error_fg_color),
-            included: or(self.included, v.weak_text_color()),
-        }
-    }
+/// What the sidebar has chosen for the middle.
+#[derive(Debug, Clone, PartialEq)]
+enum Selection {
+    LoadOrder,
+    Save(PathBuf),
 }
 
 /// What the menus, shortcuts and panels ask for, handled after drawing.
 enum Do {
     OpenFolder,
+    SetGameFolder,
+    FindGameAutomatically,
     Reload,
-    OpenSave(PathBuf),
+    Select(Selection),
     CopyReport,
+    /// Switch a plugin on or off, until Apply.
+    Switch(String, bool),
+    /// Switch on every disabled plugin the open save was made with.
+    EnableForSave,
+    Apply,
+    Revert,
     SetSkin(String),
     ReloadSkins,
     SystemTitleBar(bool),
     Quit,
+}
+
+/// Closing the window with changes not applied asks first.
+#[derive(Debug, PartialEq)]
+enum Closing {
+    No,
+    Asking,
+    /// Applying, then closing once that's done.
+    Applying,
+    /// Close without asking again.
+    Confirmed,
 }
 
 pub struct App {
@@ -78,15 +73,23 @@ pub struct App {
     forced_skin: Option<String>,
     skin_colours: SkinColours,
     loader: Loader,
-    folder: PathBuf,
+    /// The game's files once looked for: its paths, or why it wasn't found.
+    game: Option<Result<GamePaths, String>>,
+    /// Data, Plugins.txt and Skyrim.ccc once read.
+    setup: Option<Result<Setup, String>>,
+    /// The save folder, once the game has been looked for.
+    folder: Option<PathBuf>,
     characters: Characters,
     unreadable: usize,
-    selected: Option<PathBuf>,
+    selection: Selection,
     analysis: Option<Analysis>,
     /// The open save's screenshot, shown top right of its details.
     save_image: Option<egui::TextureHandle>,
-    /// The plugin list's column filters; kept when another save is opened.
-    plugin_filter: PluginFilter,
+    pending: Pending,
+    /// Each table's column filters, kept while moving between saves.
+    save_filter: PluginFilter,
+    order_filter: PluginFilter,
+    closing: Closing,
     error: Option<String>,
     notice: Option<(String, f64)>,
     /// Screenshot mode: where to save, whether it was asked for, and when
@@ -107,8 +110,6 @@ impl App {
 
     fn with_context(ctx: &egui::Context, config: Config) -> Self {
         let (skins, skin_errors) = load_skins();
-        let folder = std::env::var_os("ARCANAEUM_SAVE_FOLDER")
-            .map_or_else(|| config.save_folder(), PathBuf::from);
         let mut app = Self {
             custom_frame: !config.system_title_bar,
             config,
@@ -117,20 +118,26 @@ impl App {
             forced_skin: std::env::var("ARCANAEUM_SKIN").ok(),
             skin_colours: SkinColours::default(),
             loader: Loader::start(ctx),
-            folder,
+            game: None,
+            setup: None,
+            folder: None,
             characters: Characters::new(),
             unreadable: 0,
-            selected: None,
+            selection: Selection::LoadOrder,
             analysis: None,
             save_image: None,
-            plugin_filter: PluginFilter::default(),
+            pending: Pending::default(),
+            save_filter: PluginFilter::default(),
+            order_filter: PluginFilter::default(),
+            closing: Closing::No,
             error: None,
             notice: None,
             screenshot: std::env::var_os("ARCANAEUM_SCREENSHOT")
                 .map(|p| (PathBuf::from(p), false, None)),
         };
         app.apply_skin(ctx);
-        app.loader.send(Command::ScanFolder(app.folder.clone()));
+        app.loader
+            .send(Command::FindGame(app.config.game_folder.clone()));
         app
     }
 
@@ -173,42 +180,61 @@ impl App {
         self.notice = Some((text.into(), ctx.input(|i| i.time)));
     }
 
+    fn paths(&self) -> Option<&GamePaths> {
+        self.game.as_ref().and_then(|g| g.as_ref().ok())
+    }
+
+    fn setup(&self) -> Option<&Setup> {
+        self.setup.as_ref().and_then(|s| s.as_ref().ok())
+    }
+
+    /// The open save, if it's the one selected.
+    fn open_save(&self) -> Option<&Analysis> {
+        self.analysis
+            .as_ref()
+            .filter(|a| self.selection == Selection::Save(a.path.clone()))
+    }
+
+    fn save_rows(&self) -> Option<Vec<Row>> {
+        self.open_save()
+            .map(|a| analysis::save_rows(&a.save, self.setup(), &a.links, &self.pending))
+    }
+
+    fn order_rows(&self) -> Option<Vec<Row>> {
+        self.setup()
+            .map(|setup| analysis::load_order_rows(setup, &self.pending))
+    }
+
     fn handle_updates(&mut self, ctx: &egui::Context) {
         for update in self.loader.poll() {
             match update {
+                Update::Game(game) => {
+                    let folder = std::env::var_os("ARCANAEUM_SAVE_FOLDER").map_or_else(
+                        || self.config.save_folder(game.as_ref().ok()),
+                        PathBuf::from,
+                    );
+                    if let Ok(paths) = &game {
+                        self.loader.send(Command::ReadSetup(paths.clone()));
+                    }
+                    self.loader.send(Command::ScanFolder(folder.clone()));
+                    self.folder = Some(folder);
+                    self.game = Some(game);
+                }
                 Update::Folder {
                     path,
                     characters,
                     unreadable,
-                } if path == self.folder => {
+                } if Some(&path) == self.folder.as_ref() => {
                     self.characters = characters;
                     self.unreadable = unreadable;
-                    if self.screenshot.is_some() && self.selected.is_none() {
-                        // `ARCANAEUM_CHARACTER` names whose newest save to show;
-                        // otherwise the first character's.
-                        let saves = match std::env::var("ARCANAEUM_CHARACTER") {
-                            Ok(name) => {
-                                let saves = self.characters.get(&name);
-                                if saves.is_none() {
-                                    let names: Vec<_> = self.characters.keys().collect();
-                                    eprintln!("no character named {name:?}; there are {names:?}");
-                                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                                }
-                                saves
-                            }
-                            Err(_) => self.characters.values().next(),
-                        };
-                        if let Some(save) = saves.and_then(|s| s.first()) {
-                            self.selected = Some(save.path.clone());
-                            self.loader.send(Command::OpenSave(save.path.clone()));
-                        }
+                    if self.screenshot.is_some() && self.selection == Selection::LoadOrder {
+                        self.open_screenshot_save(ctx);
                     }
                 }
                 Update::Folder { .. } => {}
+                Update::Setup(setup) => self.setup = Some(setup),
                 Update::Save(Ok(analysis)) => {
-                    if self.selected.as_deref().map(|p| p.display().to_string())
-                        == Some(analysis.path.clone())
-                    {
+                    if self.selection == Selection::Save(analysis.path.clone()) {
                         self.save_image = analysis.screenshot().map(|image| {
                             ctx.load_texture("save-screenshot", image, egui::TextureOptions::LINEAR)
                         });
@@ -216,7 +242,43 @@ impl App {
                     }
                 }
                 Update::Save(Err(e)) => self.error = Some(e),
+                Update::Applied(Ok(changed)) => {
+                    self.pending.clear();
+                    self.notify(ctx, format!("Plugins.txt updated, {changed} changed"));
+                    if let Some(paths) = self.paths().cloned() {
+                        self.loader.send(Command::ReadSetup(paths));
+                    }
+                    if self.closing == Closing::Applying {
+                        self.closing = Closing::Confirmed;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                }
+                Update::Applied(Err(e)) => {
+                    self.error = Some(format!("Couldn't write Plugins.txt: {e}"));
+                    self.closing = Closing::No;
+                }
             }
+        }
+    }
+
+    /// Screenshot mode: opens the newest save of `ARCANAEUM_CHARACTER`, or
+    /// of the first character.
+    fn open_screenshot_save(&mut self, ctx: &egui::Context) {
+        let saves = match std::env::var("ARCANAEUM_CHARACTER") {
+            Ok(name) => {
+                let saves = self.characters.get(&name);
+                if saves.is_none() {
+                    let names: Vec<_> = self.characters.keys().collect();
+                    eprintln!("no character named {name:?}; there are {names:?}");
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                saves
+            }
+            Err(_) => self.characters.values().next(),
+        };
+        if let Some(save) = saves.and_then(|s| s.first()) {
+            let path = save.path.clone();
+            self.act(ctx, Do::Select(Selection::Save(path)));
         }
     }
 
@@ -225,6 +287,9 @@ impl App {
         let pressed = |m, k| ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(m, k)));
         if pressed(Modifiers::COMMAND | Modifiers::SHIFT, Key::C) {
             actions.push(Do::CopyReport);
+        }
+        if pressed(Modifiers::COMMAND, Key::S) {
+            actions.push(Do::Apply);
         }
         if pressed(Modifiers::COMMAND, Key::O) {
             actions.push(Do::OpenFolder);
@@ -255,6 +320,7 @@ impl App {
                 ui.close();
             }
         }
+        let changes = !self.pending.is_empty();
         ui.menu_button("File", |ui| {
             item(
                 ui,
@@ -264,15 +330,28 @@ impl App {
                 "Ctrl+O",
                 Do::OpenFolder,
             );
+            item(ui, actions, true, "Set Game Folder…", "", Do::SetGameFolder);
+            item(
+                ui,
+                actions,
+                self.config.game_folder.is_some(),
+                "Find Game Through Steam",
+                "",
+                Do::FindGameAutomatically,
+            );
+            ui.separator();
             item(ui, actions, true, "Reload", "Ctrl+R", Do::Reload);
             ui.separator();
             item(ui, actions, true, "Quit", "Ctrl+Q", Do::Quit);
         });
         ui.menu_button("Edit", |ui| {
+            item(ui, actions, changes, "Apply Changes", "Ctrl+S", Do::Apply);
+            item(ui, actions, changes, "Revert Changes", "", Do::Revert);
+            ui.separator();
             item(
                 ui,
                 actions,
-                self.analysis.is_some(),
+                self.report().is_some(),
                 "Copy Report",
                 "Ctrl+Shift+C",
                 Do::CopyReport,
@@ -301,50 +380,149 @@ impl App {
         });
     }
 
-    /// Right side of the title bar: the app's output, the chosen save's report.
+    /// Right side of the title bar, laid out right to left: the app's
+    /// output, the changed load order and the report (ADR-0003, ADR-0006).
     fn output(&self, ui: &mut egui::Ui, actions: &mut Vec<Do>) {
+        let label = match self.pending.len() {
+            0 => "Apply".to_string(),
+            n => format!("Apply ({n})"),
+        };
+        let apply = ui
+            .add_enabled(!self.pending.is_empty(), egui::Button::new(label))
+            .on_hover_text("Write the switched plugins to Plugins.txt (Ctrl+S)");
+        if apply.clicked() {
+            actions.push(Do::Apply);
+        }
         let copy = ui
-            .add_enabled(self.analysis.is_some(), egui::Button::new("Copy Report"))
-            .on_hover_text("Copy the save's plugins and where to get them (Ctrl+Shift+C)");
+            .add_enabled(self.report().is_some(), egui::Button::new("Copy Report"))
+            .on_hover_text("Copy the plugins shown and where to get them (Ctrl+Shift+C)");
         if copy.clicked() {
             actions.push(Do::CopyReport);
         }
     }
 
+    /// The report for what's shown: the load order, or the open save.
+    fn report(&self) -> Option<String> {
+        match &self.selection {
+            Selection::LoadOrder => self
+                .order_rows()
+                .map(|rows| analysis::report("Load order", &rows)),
+            Selection::Save(_) => {
+                let save = self.open_save()?;
+                let h = &save.save.header;
+                let title = format!(
+                    "{} (level {}), save {}\n{}",
+                    h.player_name,
+                    h.player_level,
+                    h.save_number,
+                    save.path.display()
+                );
+                Some(analysis::report(&title, &self.save_rows()?))
+            }
+        }
+    }
+
+    /// Asks the game folder or the Steam lookup again, as the config now says.
+    fn find_game(&mut self) {
+        self.config.save();
+        self.game = None;
+        self.setup = None;
+        self.pending.clear();
+        self.loader
+            .send(Command::FindGame(self.config.game_folder.clone()));
+    }
+
     fn act(&mut self, ctx: &egui::Context, action: Do) {
         match action {
             Do::OpenFolder => {
-                let picked = rfd::FileDialog::new()
-                    .set_title("Open Save Folder")
-                    .set_directory(&self.folder)
-                    .pick_folder();
-                if let Some(folder) = picked {
+                let mut dialog = rfd::FileDialog::new().set_title("Open Save Folder");
+                if let Some(folder) = &self.folder {
+                    dialog = dialog.set_directory(folder);
+                }
+                if let Some(folder) = dialog.pick_folder() {
                     self.config.save_folder = Some(folder.clone());
                     self.config.save();
-                    self.folder = folder;
                     self.characters.clear();
-                    self.selected = None;
+                    self.selection = Selection::LoadOrder;
                     self.analysis = None;
                     self.save_image = None;
-                    self.loader.send(Command::ScanFolder(self.folder.clone()));
+                    self.loader.send(Command::ScanFolder(folder.clone()));
+                    self.folder = Some(folder);
                 }
             }
+            Do::SetGameFolder => {
+                let picked = rfd::FileDialog::new()
+                    .set_title("Set Game Folder (the one holding SkyrimSE.exe)")
+                    .pick_folder();
+                if let Some(folder) = picked {
+                    self.config.game_folder = Some(folder);
+                    self.find_game();
+                }
+            }
+            Do::FindGameAutomatically => {
+                self.config.game_folder = None;
+                self.find_game();
+            }
             Do::Reload => {
-                self.loader.send(Command::ScanFolder(self.folder.clone()));
-                if let Some(path) = self.selected.clone() {
+                if let Some(paths) = self.paths().cloned() {
+                    self.loader.send(Command::ReadSetup(paths));
+                }
+                if let Some(folder) = self.folder.clone() {
+                    self.loader.send(Command::ScanFolder(folder));
+                }
+                if let Selection::Save(path) = self.selection.clone() {
                     self.loader.send(Command::OpenSave(path));
                 }
             }
-            Do::OpenSave(path) => {
-                self.selected = Some(path.clone());
-                self.loader.send(Command::OpenSave(path));
+            Do::Select(selection) => {
+                if let Selection::Save(path) = &selection {
+                    self.loader.send(Command::OpenSave(path.clone()));
+                }
+                self.selection = selection;
             }
             Do::CopyReport => {
-                if let Some(analysis) = &self.analysis {
-                    ctx.copy_text(analysis.report());
+                if let Some(report) = self.report() {
+                    ctx.copy_text(report);
                     self.notify(ctx, "Report copied");
                 }
             }
+            Do::Switch(name, on) => {
+                if let Some(Ok(setup)) = &self.setup {
+                    self.pending.set(setup, &name, on);
+                }
+            }
+            Do::EnableForSave => {
+                let disabled: Vec<_> = self
+                    .save_rows()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|row| row.kind == Kind::Disabled)
+                    .collect();
+                if let Some(Ok(setup)) = &self.setup {
+                    for row in disabled {
+                        self.pending.set(setup, &row.name, true);
+                    }
+                }
+            }
+            Do::Apply => {
+                let Some(plugins_txt) = self.paths().map(|p| p.plugins_txt.clone()) else {
+                    return;
+                };
+                if self.pending.is_empty() {
+                    return;
+                }
+                if game::is_running() {
+                    self.error = Some(
+                        "Skyrim is running, and it rewrites Plugins.txt when it quits. Close it, then apply."
+                            .into(),
+                    );
+                    self.closing = Closing::No;
+                    return;
+                }
+                self.loader
+                    .send(Command::Apply(plugins_txt, self.pending.changes()));
+            }
+            Do::Revert => self.pending.clear(),
             Do::SetSkin(name) => {
                 self.forced_skin = None;
                 self.config.skin = Some(name);
@@ -367,6 +545,24 @@ impl App {
 
     fn sidebar(&self, ui: &mut egui::Ui, actions: &mut Vec<Do>) {
         ui.add_space(6.0);
+        ui.heading("Game");
+        ui.add_space(4.0);
+        let label = match self.pending.len() {
+            0 => "Load Order".to_string(),
+            n => format!("Load Order  ({n} not applied)"),
+        };
+        let selected = self.selection == Selection::LoadOrder;
+        let width = ui.available_width();
+        let row = ui.add(
+            egui::Button::selectable(selected, label)
+                .min_size(egui::vec2(width, 0.0))
+                .truncate(),
+        );
+        if row.clicked() && !selected {
+            actions.push(Do::Select(Selection::LoadOrder));
+        }
+
+        ui.add_space(10.0);
         ui.heading("Characters");
         ui.add_space(4.0);
         if self.characters.is_empty() {
@@ -383,30 +579,35 @@ impl App {
             }
             return;
         }
+        let current = match &self.selection {
+            Selection::Save(path) => Some(path),
+            Selection::LoadOrder => None,
+        };
         egui::ScrollArea::vertical()
             .auto_shrink(false)
             .show(ui, |ui| {
                 let only_one = self.characters.len() == 1;
                 for (name, saves) in &self.characters {
-                    let holds_selected = saves
-                        .iter()
-                        .any(|s| Some(&s.path) == self.selected.as_ref());
+                    let holds_selected = saves.iter().any(|s| Some(&s.path) == current);
                     egui::CollapsingHeader::new(format!("{name}  ({})", saves.len()))
                         .id_salt(name)
                         .default_open(only_one || holds_selected)
                         .show(ui, |ui| {
                             for save in saves {
                                 let h = &save.header;
-                                let selected = Some(&save.path) == self.selected.as_ref();
+                                let selected = Some(&save.path) == current;
                                 let label = format!("{}  ·  {}", h.save_number, h.player_location);
+                                let saved = saves::save_timestamp(&save.file_name)
+                                    .map(|t| format!(", saved {t}"))
+                                    .unwrap_or_default();
                                 let row = ui
                                     .add(egui::Button::selectable(selected, label).truncate())
                                     .on_hover_text(format!(
-                                        "{}\nLevel {}, {}",
+                                        "{}\nLevel {}, {}{saved}",
                                         save.file_name, h.player_level, h.game_date
                                     ));
                                 if row.clicked() && !selected {
-                                    actions.push(Do::OpenSave(save.path.clone()));
+                                    actions.push(Do::Select(Selection::Save(save.path.clone())));
                                 }
                             }
                         });
@@ -414,19 +615,102 @@ impl App {
             });
     }
 
-    fn details(&mut self, ui: &mut egui::Ui) {
-        let Some(analysis) = &self.analysis else {
+    fn colours(&self, ui: &egui::Ui) -> Colours {
+        self.skin_colours.resolve(ui.visuals())
+    }
+
+    fn load_order_view(&mut self, ui: &mut egui::Ui, actions: &mut Vec<Do>) {
+        let waiting = |ui: &mut egui::Ui, text: &str| {
             ui.centered_and_justified(|ui| {
-                if self.selected.is_some() && self.loader.busy() {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.weak(text);
+                });
+            });
+        };
+        let paths = match &self.game {
+            None => return waiting(ui, "Looking for Skyrim Special Edition…"),
+            Some(Err(e)) => {
+                ui.add_space(6.0);
+                ui.heading("Skyrim Special Edition wasn't found");
+                ui.label(e);
+                ui.weak(
+                    "Arcanaeum looks for the Steam library that owns the game. For a copy \
+                     installed elsewhere, pick the folder holding SkyrimSE.exe.",
+                );
+                if ui.button("Set Game Folder…").clicked() {
+                    actions.push(Do::SetGameFolder);
+                }
+                return;
+            }
+            Some(Ok(paths)) => paths.clone(),
+        };
+        let rows = match &self.setup {
+            None => return waiting(ui, "Reading the load order…"),
+            Some(Err(e)) => {
+                ui.add_space(6.0);
+                ui.heading("The load order couldn't be read");
+                ui.colored_label(ui.visuals().error_fg_color, e);
+                return;
+            }
+            Some(Ok(setup)) => analysis::load_order_rows(setup, &self.pending),
+        };
+        let colours = self.colours(ui);
+
+        ui.add_space(6.0);
+        ui.heading("Load Order");
+        ui.add(
+            egui::Label::new(egui::RichText::new(paths.plugins_txt.display().to_string()).weak())
+                .truncate(),
+        );
+        ui.add_space(6.0);
+        let counts = analysis::counts(&rows);
+        ui.horizontal_wrapped(|ui| {
+            let mut first = true;
+            for kind in Kind::ALL {
+                let n = counts.get(&kind).copied().unwrap_or(0);
+                if n == 0 {
+                    continue;
+                }
+                if !first {
+                    ui.weak("·");
+                }
+                first = false;
+                ui.colored_label(
+                    colours.of(kind),
+                    format!("{n} {}", kind.label().to_lowercase()),
+                );
+            }
+            if !self.pending.is_empty() {
+                ui.add_space(12.0);
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    format!(
+                        "{} not applied",
+                        plural(self.pending.len(), "change", "changes")
+                    ),
+                );
+            }
+        });
+        ui.add_space(4.0);
+        for (name, on) in plugin_table(ui, "load-order", &rows, &mut self.order_filter, &colours) {
+            actions.push(Do::Switch(name, on));
+        }
+    }
+
+    fn save_view(&mut self, ui: &mut egui::Ui, actions: &mut Vec<Do>) {
+        let (Some(analysis), Some(rows)) = (self.open_save(), self.save_rows()) else {
+            ui.centered_and_justified(|ui| {
+                if self.loader.busy() {
                     ui.spinner();
                 } else {
-                    ui.weak("Pick a save on the left to see the mods it needs.");
+                    ui.weak("This save couldn't be opened.");
                 }
             });
             return;
         };
         let h = &analysis.save.header;
-        let colours = self.skin_colours.resolve(ui.visuals());
+        let colours = self.colours(ui);
 
         let info = |ui: &mut egui::Ui| {
             ui.add_space(6.0);
@@ -438,13 +722,18 @@ impl App {
             let sex = match h.player_sex {
                 Sex::Male => ", male",
                 Sex::Female => ", female",
-                Sex::Undefined => "",
+                Sex::Unknown(_) => "",
             };
             ui.weak(format!(
                 "Level {} {race}{sex}  ·  {}",
                 h.player_level, h.player_location
             ));
             ui.add_space(6.0);
+            let file_name = analysis
+                .path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             egui::Grid::new("details")
                 .num_columns(2)
                 .spacing([24.0, 4.0])
@@ -464,8 +753,11 @@ impl App {
                         },
                     );
                     line(ui, "Save", &h.save_number.to_string());
+                    if let Some(saved) = saves::save_timestamp(&file_name) {
+                        line(ui, "Saved", &saved);
+                    }
                     line(ui, "In-game date", &h.game_date);
-                    line(ui, "File", &analysis.path);
+                    line(ui, "File", &analysis.path.display().to_string());
                 });
         };
 
@@ -491,18 +783,41 @@ impl App {
 
         ui.add_space(8.0);
         ui.separator();
-        let (installed, available, missing) = analysis.counts();
-        ui.horizontal(|ui| {
+        let counts = analysis::counts(&rows);
+        let count = |kind| counts.get(&kind).copied().unwrap_or(0);
+        ui.horizontal_wrapped(|ui| {
             ui.heading("Plugins");
             ui.add_space(8.0);
-            ui.colored_label(colours.installed, format!("{installed} installed"));
-            ui.weak("·");
-            ui.colored_label(colours.available, format!("{available} to download"));
-            ui.weak("·");
-            ui.colored_label(colours.missing, format!("{missing} not found"));
+            for (i, kind) in [Kind::Active, Kind::Disabled, Kind::NotInstalled, Kind::NotFound]
+                .into_iter()
+                .enumerate()
+            {
+                if i > 0 {
+                    ui.weak("·");
+                }
+                ui.colored_label(colours.of(kind), format!("{} {}", count(kind), kind.label().to_lowercase()));
+            }
+            let disabled = count(Kind::Disabled);
+            if disabled > 0 {
+                ui.add_space(12.0);
+                let enable = ui
+                    .button(format!(
+                        "Enable {}",
+                        plural(disabled, "Disabled Plugin", "Disabled Plugins")
+                    ))
+                    .on_hover_text("Switch on every plugin this save was made with that's in Data but switched off");
+                if enable.clicked() {
+                    actions.push(Do::EnableForSave);
+                }
+            }
         });
+        if self.setup().is_none() {
+            ui.weak("Without the game's Data folder and Plugins.txt, only the plugins' names are known.");
+        }
         ui.add_space(4.0);
-        plugin_table(ui, analysis, &mut self.plugin_filter, &colours);
+        for (name, on) in plugin_table(ui, "save-plugins", &rows, &mut self.save_filter, &colours) {
+            actions.push(Do::Switch(name, on));
+        }
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
@@ -535,18 +850,60 @@ impl App {
                 }
                 ui.weak(text);
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add(
-                    egui::Label::new(egui::RichText::new(self.folder.display().to_string()).weak())
-                        .truncate(),
-                );
+            if let Some(folder) = &self.folder {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(folder.display().to_string()).weak())
+                            .truncate(),
+                    );
+                });
+            }
+        });
+    }
+
+    /// Closing with changes not applied: apply them, drop them, or stay.
+    fn closing(&mut self, ctx: &egui::Context, actions: &mut Vec<Do>) {
+        let asked = ctx.input(|i| i.viewport().close_requested());
+        if asked && !self.pending.is_empty() && self.closing != Closing::Confirmed {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            if self.closing == Closing::No {
+                self.closing = Closing::Asking;
+            }
+        }
+        if self.closing != Closing::Asking {
+            return;
+        }
+        let modal = egui::Modal::new(egui::Id::new("closing")).show(ctx, |ui| {
+            ui.set_width(360.0);
+            ui.heading("Apply your changes?");
+            ui.label(format!(
+                "{} switched on or off, but Plugins.txt hasn't been changed yet.",
+                plural(self.pending.len(), "plugin is", "plugins are")
+            ));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Apply and Quit").clicked() {
+                    self.closing = Closing::Applying;
+                    actions.push(Do::Apply);
+                }
+                if ui.button("Quit Without Applying").clicked() {
+                    self.closing = Closing::Confirmed;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                if ui.button("Cancel").clicked() {
+                    self.closing = Closing::No;
+                }
             });
         });
+        if modal.should_close() && self.closing == Closing::Asking {
+            self.closing = Closing::No;
+        }
     }
 
     /// Screenshot mode: once the first save is shown, save the window and quit.
     fn take_screenshot(&mut self, ctx: &egui::Context) {
-        let ready = self.analysis.is_some() || (!self.loader.busy() && self.characters.is_empty());
+        let ready = self.open_save().is_some()
+            || (!self.loader.busy() && self.folder.is_some() && self.characters.is_empty());
         let Some((path, requested, ready_at)) = &mut self.screenshot else {
             return;
         };
@@ -579,137 +936,7 @@ impl App {
             _ => ctx.request_repaint_after_secs(0.1),
         }
     }
-}
 
-/// The open save's plugins, in load order, with a filter in each column's
-/// header that stays put while the rows scroll.
-fn plugin_table(
-    ui: &mut egui::Ui,
-    analysis: &Analysis,
-    filter: &mut PluginFilter,
-    colours: &Colours,
-) {
-    use egui_extras::{Column, TableBuilder};
-
-    let colour = |kind: Kind| match kind {
-        Kind::BaseGame | Kind::CreationClub => colours.included,
-        Kind::Installed => colours.installed,
-        Kind::NotInstalled => colours.available,
-        Kind::NotFound => colours.missing,
-    };
-    let shown: Vec<_> = analysis
-        .plugins
-        .iter()
-        .enumerate()
-        .filter(|(i, row)| filter.matches(*i, row))
-        .collect();
-
-    ui.horizontal(|ui| {
-        ui.weak(format!(
-            "Showing {} of {}",
-            shown.len(),
-            analysis.plugins.len()
-        ));
-        if filter.is_active() && ui.small_button("Clear Filters").clicked() {
-            *filter = PluginFilter::default();
-        }
-    });
-
-    let row_height = ui.spacing().interact_size.y + 4.0;
-    TableBuilder::new(ui)
-        .id_salt("plugins")
-        .striped(true)
-        .resizable(true)
-        .auto_shrink(false)
-        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-        .column(Column::exact(48.0))
-        .column(Column::initial(320.0).at_least(120.0).clip(true))
-        .column(Column::remainder().at_least(160.0).clip(true))
-        .header(row_height + 4.0, |mut header| {
-            header.col(|ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut filter.index)
-                        .hint_text("#")
-                        .desired_width(f32::INFINITY),
-                )
-                .on_hover_text("Filter by load order index (hex)");
-            });
-            header.col(|ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut filter.name)
-                        .hint_text("Plugin")
-                        .desired_width(f32::INFINITY),
-                )
-                .on_hover_text("Filter by any part of the plugin's name");
-            });
-            header.col(|ui| {
-                let hidden = filter.hidden.len();
-                let label = match hidden {
-                    0 => "Status: All".to_string(),
-                    n => format!("Status: {} of {}", Kind::ALL.len() - n, Kind::ALL.len()),
-                };
-                // Stays open while statuses are ticked on and off.
-                let config = egui::containers::menu::MenuConfig::new()
-                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
-                egui::containers::menu::MenuButton::new(label)
-                    .config(config)
-                    .ui(ui, |ui| {
-                        for kind in Kind::ALL {
-                            let mut shown = !filter.hidden.contains(&kind);
-                            let text = egui::RichText::new(kind.label()).color(colour(kind));
-                            if ui.checkbox(&mut shown, text).changed() {
-                                if shown {
-                                    filter.hidden.remove(&kind);
-                                } else {
-                                    filter.hidden.insert(kind);
-                                }
-                            }
-                        }
-                        ui.separator();
-                        if ui.button("Show All").clicked() {
-                            filter.hidden.clear();
-                            ui.close();
-                        }
-                    });
-            });
-        })
-        .body(|body| {
-            body.rows(row_height, shown.len(), |mut row| {
-                let (i, plugin) = shown[row.index()];
-                row.col(|ui| {
-                    ui.weak(format!("{i:02X}"));
-                });
-                row.col(|ui| {
-                    ui.add(egui::Label::new(&plugin.name).truncate());
-                });
-                row.col(|ui| {
-                    let kind = plugin.kind();
-                    ui.colored_label(colour(kind), kind.label());
-                    if let Status::Available(urls) = &plugin.status {
-                        for url in urls {
-                            ui.hyperlink(url);
-                        }
-                    }
-                });
-            });
-        });
-}
-
-impl eframe::App for App {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        self.draw(ui);
-    }
-
-    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
-        frame::clear_color(visuals, self.custom_frame)
-    }
-
-    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
-        frame::release_grab(ctx, raw_input);
-    }
-}
-
-impl App {
     fn draw(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         self.handle_updates(&ctx);
@@ -722,7 +949,10 @@ impl App {
         };
 
         let mut actions = Vec::new();
-        self.shortcuts(&ctx, &mut actions);
+        self.closing(&ctx, &mut actions);
+        if self.closing == Closing::No {
+            self.shortcuts(&ctx, &mut actions);
+        }
         let mut output = Vec::new();
         egui::Panel::top("header")
             .frame(frame::header_frame(ui.style(), &style, radius))
@@ -749,12 +979,15 @@ impl App {
             )
             .show(ui, |ui| self.status_bar(ui));
 
-        egui::Panel::left("characters")
+        egui::Panel::left("sidebar")
             .default_size(280.0)
             .resizable(true)
             .show(ui, |ui| self.sidebar(ui, &mut actions));
 
-        egui::CentralPanel::default().show(ui, |ui| self.details(ui));
+        egui::CentralPanel::default().show(ui, |ui| match self.selection {
+            Selection::LoadOrder => self.load_order_view(ui, &mut actions),
+            Selection::Save(_) => self.save_view(ui, &mut actions),
+        });
 
         for action in actions {
             self.act(&ctx, action);
@@ -766,308 +999,24 @@ impl App {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// "1 change", "3 changes".
+fn plural(n: usize, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
 
-    #[test]
-    fn the_home_skin_exists() {
-        let (skins, _) = skin::load_all(skin::BUILT_IN, &[]);
-        assert!(skins.iter().any(|s| s.name == HOME_SKIN));
+impl eframe::App for App {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.draw(ui);
     }
 
-    #[test]
-    fn status_colours_come_from_the_skin_or_the_visuals() {
-        let skin = Skin::parse(
-            "format = 1\nname = \"Test\"\nbase = \"dark\"\n[app.arcanaeum]\nmissing = \"#ff0000\"\n",
-        )
-        .unwrap();
-        let (colours, warnings) = skin.app_section::<SkinColours>("arcanaeum").unwrap();
-        assert!(warnings.is_empty());
-        let v = egui::Visuals::dark();
-        let resolved = colours.resolve(&v);
-        assert_eq!(resolved.missing, Color32::from_rgb(255, 0, 0));
-        assert_eq!(resolved.available, v.warn_fg_color);
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        frame::clear_color(visuals, self.custom_frame)
+    }
+
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        frame::release_grab(ctx, raw_input);
     }
 }
 
 #[cfg(test)]
-mod window_tests {
-    use super::*;
-
-    fn texts(shape: &egui::Shape, out: &mut String) {
-        match shape {
-            egui::Shape::Text(t) => {
-                out.push_str(t.galley.text());
-                out.push('\n');
-            }
-            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| texts(s, out)),
-            _ => {}
-        }
-    }
-
-    /// Draws a frame of the window with `events` as its input.
-    fn frame_with(
-        app: &mut App,
-        ctx: &egui::Context,
-        events: Vec<egui::Event>,
-    ) -> egui::FullOutput {
-        let input = egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(1280.0, 768.0),
-            )),
-            events,
-            ..Default::default()
-        };
-        ctx.run_ui(input, |ui| app.draw(ui))
-    }
-
-    /// Where exactly the text `text` is drawn, on top if it's drawn more
-    /// than once (a menu over the table).
-    fn text_rect(output: &egui::FullOutput, text: &str) -> Option<egui::Rect> {
-        fn find(shape: &egui::Shape, text: &str) -> Option<egui::Rect> {
-            match shape {
-                egui::Shape::Text(t) if t.galley.text() == text => {
-                    Some(t.galley.rect.translate(t.pos.to_vec2()))
-                }
-                egui::Shape::Vec(shapes) => shapes.iter().find_map(|s| find(s, text)),
-                _ => None,
-            }
-        }
-        output.shapes.iter().rev().find_map(|s| find(&s.shape, text))
-    }
-
-    /// A click at `at`: move there, press, release, a frame each.
-    fn click(app: &mut App, ctx: &egui::Context, at: egui::Pos2) {
-        let button = |pressed| egui::Event::PointerButton {
-            pos: at,
-            button: egui::PointerButton::Primary,
-            pressed,
-            modifiers: Default::default(),
-        };
-        let _ = frame_with(app, ctx, vec![egui::Event::PointerMoved(at)]);
-        let _ = frame_with(app, ctx, vec![button(true)]);
-        let _ = frame_with(app, ctx, vec![button(false)]);
-    }
-
-    /// Draws a frame of the window and returns all the text on screen.
-    fn frame(app: &mut App, ctx: &egui::Context) -> String {
-        let output = frame_with(app, ctx, Vec::new());
-        let mut out = String::new();
-        output.shapes.iter().for_each(|s| texts(&s.shape, &mut out));
-        out
-    }
-
-    fn settle(app: &mut App, ctx: &egui::Context) -> String {
-        for _ in 0..600 {
-            frame(app, ctx);
-            if !app.loader.busy() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
-        frame(app, ctx)
-    }
-
-    #[test]
-    fn an_empty_folder_says_so_under_word_menus() {
-        let dir = std::env::temp_dir().join("arcanaeum_empty_folder_test");
-        std::fs::create_dir_all(&dir).unwrap();
-        let ctx = egui::Context::default();
-        let config = Config {
-            save_folder: Some(dir),
-            ..Default::default()
-        };
-        let mut app = App::with_context(&ctx, config);
-        let screen = settle(&mut app, &ctx);
-        for text in [
-            "File",
-            "Edit",
-            "View",
-            "Skins",
-            "Arcanaeum",
-            "Copy Report",
-            "No saves in this folder.",
-        ] {
-            assert!(screen.contains(text), "{text:?} not on screen:\n{screen}");
-        }
-    }
-
-    /// Opens the newest save in `ARCANAEUM_TEST_SAVES` (a real save folder,
-    /// only read): `ARCANAEUM_TEST_SAVES=… cargo test -- --ignored`.
-    #[test]
-    #[ignore]
-    fn a_real_save_shows_its_plugins() {
-        let dir = PathBuf::from(
-            std::env::var_os("ARCANAEUM_TEST_SAVES").expect("set ARCANAEUM_TEST_SAVES"),
-        );
-        let ctx = egui::Context::default();
-        let mut app = App::with_context(
-            &ctx,
-            Config {
-                save_folder: Some(dir),
-                ..Default::default()
-            },
-        );
-        settle(&mut app, &ctx);
-        let save = app
-            .characters
-            .values()
-            .next()
-            .and_then(|s| s.first())
-            .expect("no saves")
-            .path
-            .clone();
-        app.act(&ctx, Do::OpenSave(save));
-        let screen = settle(&mut app, &ctx);
-        let analysis = app.analysis.as_ref().expect("save didn't open");
-        assert!(screen.contains("Plugins"), "{screen}");
-        assert!(screen.contains(&analysis.save.header.player_name));
-
-        let texture = app.save_image.as_ref().expect("no save screenshot");
-        let image = analysis.screenshot().unwrap();
-        let lit = image
-            .pixels
-            .iter()
-            .filter(|c| c.r() > 16 || c.g() > 16 || c.b() > 16)
-            .count();
-        assert!(lit > image.pixels.len() / 4, "screenshot is mostly black");
-        let id = texture.id();
-        let mut drawn_at = |width: f32, height: f32| {
-            let input = egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(width, height),
-                )),
-                ..Default::default()
-            };
-            // Twice: panels settle their sizes on the second frame.
-            let _ = ctx.run_ui(input.clone(), |ui| app.draw(ui));
-            let output = ctx.run_ui(input, |ui| app.draw(ui));
-            output
-                .shapes
-                .iter()
-                .find_map(|s| match &s.shape {
-                    egui::Shape::Mesh(m) if m.texture_id == id => Some(m.calc_bounds()),
-                    egui::Shape::Rect(r) if r.fill_texture_id() == id => Some(r.rect),
-                    _ => None,
-                })
-                .expect("screenshot not drawn")
-        };
-        let small = drawn_at(900.0, 600.0);
-        let large = drawn_at(2560.0, 1440.0);
-        eprintln!(
-            "screenshot {:?} drawn at {small:?}, then {large:?}",
-            image.size
-        );
-        assert!(
-            large.max.x > 2500.0 && large.min.y < 120.0,
-            "not top right: {large:?}"
-        );
-        assert!(
-            small.width() < large.width(),
-            "didn't shrink with the window"
-        );
-        assert_eq!(
-            large.size(),
-            egui::vec2(image.size[0] as f32, image.size[1] as f32),
-            "not capped at its own size"
-        );
-        eprintln!("{screen}");
-    }
-
-    /// Filters the plugins of the newest save in `ARCANAEUM_TEST_SAVES` by
-    /// clicking and typing, as a user would.
-    #[test]
-    #[ignore]
-    fn the_plugin_columns_filter() {
-        let dir = PathBuf::from(
-            std::env::var_os("ARCANAEUM_TEST_SAVES").expect("set ARCANAEUM_TEST_SAVES"),
-        );
-        let ctx = egui::Context::default();
-        let config = Config {
-            save_folder: Some(dir),
-            ..Default::default()
-        };
-        let mut app = App::with_context(&ctx, config);
-        settle(&mut app, &ctx);
-        let save = app.characters.values().next().unwrap()[0].path.clone();
-        app.act(&ctx, Do::OpenSave(save));
-        let screen = settle(&mut app, &ctx);
-        let total = app.analysis.as_ref().unwrap().plugins.len();
-        assert!(screen.contains("Skyrim.esm"), "{screen}");
-        assert!(screen.contains(&format!("Showing {total} of {total}")));
-
-        // Click into the Plugin column's filter and type.
-        let output = frame_with(&mut app, &ctx, Vec::new());
-        let field = text_rect(&output, "Plugin").expect("no Plugin filter");
-        click(&mut app, &ctx, field.center());
-        let _ = frame_with(&mut app, &ctx, vec![egui::Event::Text("FISH".into())]);
-        let screen = frame(&mut app, &ctx);
-        assert_eq!(app.plugin_filter.name, "FISH");
-        assert!(!screen.contains("Skyrim.esm"), "{screen}");
-        let fish = app
-            .analysis
-            .as_ref()
-            .unwrap()
-            .plugins
-            .iter()
-            .filter(|p| p.name.to_lowercase().contains("fish"))
-            .count();
-        assert!(fish > 0, "this save has no fish plugin to filter for");
-        assert!(
-            screen.contains(&format!("Showing {fish} of {total}")),
-            "{screen}"
-        );
-
-        // Untick Creation Club in the Status column's menu: the fish go too.
-        let output = frame_with(&mut app, &ctx, Vec::new());
-        click(
-            &mut app,
-            &ctx,
-            text_rect(&output, "Status: All").unwrap().center(),
-        );
-        let output = frame_with(&mut app, &ctx, Vec::new());
-        click(
-            &mut app,
-            &ctx,
-            text_rect(&output, "Creation Club")
-                .expect("menu not open")
-                .center(),
-        );
-        let output = frame_with(&mut app, &ctx, Vec::new());
-        assert!(app.plugin_filter.hidden.contains(&Kind::CreationClub));
-        assert!(
-            text_rect(&output, "Base game").is_some(),
-            "menu closed after one tick"
-        );
-        let screen = frame(&mut app, &ctx);
-        assert!(
-            screen.contains(&format!("Showing 0 of {total}")),
-            "{screen}"
-        );
-
-        // Clear Filters brings everything back.
-        let _ = frame_with(
-            &mut app,
-            &ctx,
-            vec![egui::Event::Key {
-                key: egui::Key::Escape,
-                physical_key: None,
-                pressed: true,
-                repeat: false,
-                modifiers: Default::default(),
-            }],
-        );
-        let output = frame_with(&mut app, &ctx, Vec::new());
-        click(
-            &mut app,
-            &ctx,
-            text_rect(&output, "Clear Filters").unwrap().center(),
-        );
-        let screen = frame(&mut app, &ctx);
-        assert!(!app.plugin_filter.is_active());
-        assert!(screen.contains("Skyrim.esm"), "{screen}");
-    }
-}
+mod tests;

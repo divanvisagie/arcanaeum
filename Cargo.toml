@@ -3,7 +3,7 @@ name = "arcanaeum"
 version = "0.2.9"
 edition = "2021"
 license = "BSD-3-Clause"
-description = "Reads your Skyrim saves to find which mods each one needs"
+description = "Reads your Skyrim saves to find which mods each one needs, and manages the load order"
 repository = "https://github.com/divanvisagie/arcanaeum"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -26,7 +26,9 @@ serde_yaml = "0.8.23"
 futures = "0.3.19"
 reqwest = { version = "0.11", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
-lz4_flex = "0.9.2"
+# Until skyplug-core 0.1.1 is on crates.io, build against the checkout next
+# to this one; the version is what a published build would use.
+skyplug-core = { version = "0.1.1", path = "../skyplug/crates/skyplug-core" }
 image = { version = "0.23", default-features = false, features = [
     "jpeg",
     "png",
@@ -37,3 +39,6 @@ rust-ini = "0.19"
 [profile.dev]
 opt-level = 0
 debug = true
+
+[dev-dependencies]
+resvg = "0.48.1"

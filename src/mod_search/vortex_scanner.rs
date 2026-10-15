@@ -35,11 +35,11 @@ pub fn get_masterlist_data(game: &str) -> Result<Vec<Plugin>, Error> {
     path_buf.push(game);
     path_buf.push("masterlist");
     path_buf.push("masterlist.yaml");
-    println!("Looking for vortex at: {:?}", path_buf);
+    tracing::info!("Looking for the Vortex masterlist at {:?}", path_buf);
 
     let file_contents = fs::read_to_string(path_buf)?;
     let parsed: MasterListFileType =
-        serde_yaml::from_str(file_contents.as_str()).expect("It borked!");
+        serde_yaml::from_str(file_contents.as_str()).map_err(|e| Error::new(ErrorKind::InvalidData, e))?;
     let plugin_master_list = parsed.plugins.iter().map(|x| parse_plugin(&x)).collect();
     Ok(plugin_master_list)
 }

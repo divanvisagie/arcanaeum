@@ -1,65 +1,109 @@
-//! What a save needs: each plugin it was made with, and whether that
-//! plugin is on disk, findable through the Vortex masterlist, or missing.
+//! Plugins and their state: the game's load order from skyplug-core, a
+//! save's plugins checked against it, changes not yet applied to
+//! Plugins.txt, and the column filters and report text for both.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::PathBuf;
 
-use crate::mod_search::vortex_scanner::Plugin;
-use crate::save_file_parser::SaveInfo;
+use skyplug_core::plugins::{PluginStatus, State};
+use skyplug_core::saves::SaveFile;
 
-/// Where a plugin comes from.
-#[derive(PartialEq, Eq, Debug, Clone, Copy)]
-pub enum Origin {
-    /// The game and its DLC.
-    Native,
-    CreationClub,
-    Mod,
+/// Download links from the Vortex masterlist, by lowercased plugin name.
+pub type Links = HashMap<String, Vec<String>>;
+
+/// The base game and its DLC, for naming a save's plugins when the game
+/// itself can't be found.
+const NATIVE_MASTERS: [&str; 5] = [
+    "Skyrim.esm",
+    "Update.esm",
+    "Dawnguard.esm",
+    "HearthFires.esm",
+    "Dragonborn.esm",
+];
+
+/// The game's plugins as they are on disk and in Plugins.txt.
+#[derive(Debug, Clone, Default)]
+pub struct Setup {
+    pub statuses: Vec<PluginStatus>,
+    /// The Special Edition masterlist's links, for plugins that aren't in Data.
+    pub links: Links,
 }
 
-pub fn origin_of(name: &str) -> Origin {
-    match name {
-        "Skyrim.esm" | "Update.esm" | "Dragonborn.esm" | "HearthFires.esm" | "Dawnguard.esm" => {
-            Origin::Native
-        }
-        _ if name.starts_with("cc") => Origin::CreationClub,
-        _ => Origin::Mod,
+impl Setup {
+    fn status(&self, name: &str) -> Option<&PluginStatus> {
+        self.statuses
+            .iter()
+            .find(|s| s.name.eq_ignore_ascii_case(name))
+    }
+
+    /// Whether Plugins.txt has `name` switched on now.
+    fn is_enabled(&self, name: &str) -> bool {
+        self.status(name).is_some_and(|s| s.state == State::Enabled)
     }
 }
 
-/// Whether a mod plugin can be loaded.
-#[derive(PartialEq, Eq, Debug, Clone)]
-pub enum Status {
-    /// Shipped with the game or Creation Club; nothing to do.
-    Included,
-    /// Found in the game's `Data` folder.
-    Installed,
-    /// Not on disk, but the masterlist knows where to get it.
-    Available(Vec<String>),
-    /// Not on disk and not in the masterlist.
-    Missing,
-}
+/// Plugins switched on or off but not yet written to Plugins.txt, by
+/// lowercased name: the exact name and the state wanted.
+#[derive(Debug, Clone, Default)]
+pub struct Pending(BTreeMap<String, (String, bool)>);
 
-#[derive(Debug, Clone)]
-pub struct PluginRow {
-    pub name: String,
-    pub origin: Origin,
-    pub status: Status,
+impl Pending {
+    pub fn get(&self, name: &str) -> Option<bool> {
+        self.0.get(&name.to_lowercase()).map(|(_, on)| *on)
+    }
+
+    /// Asks for `name` on or off; asking for what Plugins.txt already says
+    /// drops the change.
+    pub fn set(&mut self, setup: &Setup, name: &str, on: bool) {
+        let key = name.to_lowercase();
+        if setup.is_enabled(name) == on {
+            self.0.remove(&key);
+        } else {
+            self.0.insert(key, (name.to_string(), on));
+        }
+    }
+
+    /// The changes as skyplug-core applies them: (exact name, on).
+    pub fn changes(&self) -> Vec<(String, bool)> {
+        self.0.values().cloned().collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
 }
 
 /// The status column's values, as the status filter offers them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Kind {
+    /// The game and its DLC: always loaded.
     BaseGame,
+    /// Listed in Skyrim.ccc: always loaded.
     CreationClub,
-    Installed,
+    /// In Data and switched on in Plugins.txt.
+    Active,
+    /// In Data but switched off.
+    Disabled,
+    /// Not in Data, and the masterlist knows where to get it.
     NotInstalled,
+    /// Not in Data and nowhere to get it.
     NotFound,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 5] = [
+    pub const ALL: [Kind; 6] = [
         Kind::BaseGame,
         Kind::CreationClub,
-        Kind::Installed,
+        Kind::Active,
+        Kind::Disabled,
         Kind::NotInstalled,
         Kind::NotFound,
     ];
@@ -68,27 +112,140 @@ impl Kind {
         match self {
             Kind::BaseGame => "Base game",
             Kind::CreationClub => "Creation Club",
-            Kind::Installed => "Installed",
+            Kind::Active => "Active",
+            Kind::Disabled => "Disabled",
             Kind::NotInstalled => "Not installed",
             Kind::NotFound => "Not found",
         }
     }
 }
 
-impl PluginRow {
-    pub fn kind(&self) -> Kind {
-        match self.status {
-            Status::Included if self.origin == Origin::Native => Kind::BaseGame,
-            Status::Included => Kind::CreationClub,
-            Status::Installed => Kind::Installed,
-            Status::Available(_) => Kind::NotInstalled,
-            Status::Missing => Kind::NotFound,
-        }
+/// One line of a plugin table.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Row {
+    /// The save's plugin index, or the plugin's place in the load order.
+    pub index: Option<usize>,
+    pub name: String,
+    pub kind: Kind,
+    pub links: Vec<String>,
+    /// On or off, for plugins Plugins.txt decides; `None` for ones that
+    /// always load or aren't there to switch.
+    pub toggle: Option<bool>,
+    /// Switched but not yet applied.
+    pub pending: bool,
+}
+
+impl Row {
+    /// The # column, in hex as the game numbers plugins.
+    pub fn index_text(&self) -> String {
+        self.index.map(|i| format!("{i:02X}")).unwrap_or_default()
+    }
+
+    fn new(
+        name: &str,
+        index: Option<usize>,
+        setup: Option<&Setup>,
+        links: &Links,
+        pending: &Pending,
+    ) -> Self {
+        let mut row = Row {
+            index,
+            name: name.to_string(),
+            kind: Kind::NotFound,
+            links: Vec::new(),
+            toggle: None,
+            pending: false,
+        };
+        let status = setup.and_then(|s| s.status(name));
+        row.kind = match status {
+            Some(s) if s.is_cc => Kind::CreationClub,
+            Some(s) if s.is_forced => Kind::BaseGame,
+            Some(s) if s.state != State::Missing => {
+                let on = pending.get(name).unwrap_or(s.state == State::Enabled);
+                row.toggle = Some(on);
+                row.pending = pending.get(name).is_some();
+                if on {
+                    Kind::Active
+                } else {
+                    Kind::Disabled
+                }
+            }
+            // Without the game to look at, name what the name says.
+            None if setup.is_none()
+                && NATIVE_MASTERS.iter().any(|n| n.eq_ignore_ascii_case(name)) =>
+            {
+                Kind::BaseGame
+            }
+            None if setup.is_none() && name.to_lowercase().starts_with("cc") => Kind::CreationClub,
+            _ => {
+                row.links = links.get(&name.to_lowercase()).cloned().unwrap_or_default();
+                if row.links.is_empty() {
+                    Kind::NotFound
+                } else {
+                    Kind::NotInstalled
+                }
+            }
+        };
+        row
     }
 }
 
-/// A filter per column of the plugin list: text in the index and the
-/// name (any part, any case), and which statuses are hidden.
+/// A save's plugins, in the save's order, checked against the game's
+/// setup (when it was found) and the changes not yet applied.
+pub fn save_rows(
+    save: &SaveFile,
+    setup: Option<&Setup>,
+    links: &Links,
+    pending: &Pending,
+) -> Vec<Row> {
+    save.plugins
+        .iter()
+        .enumerate()
+        .map(|(i, name)| Row::new(name, Some(i), setup, links, pending))
+        .collect()
+}
+
+/// Every plugin the game knows of: those that load, in load order, then
+/// the rest by name.
+pub fn load_order_rows(setup: &Setup, pending: &Pending) -> Vec<Row> {
+    let mut statuses: Vec<_> = setup.statuses.iter().collect();
+    statuses.sort_by_key(|s| (s.load_order.is_none(), s.load_order, s.name.to_lowercase()));
+    statuses
+        .into_iter()
+        .map(|s| {
+            let index = s.load_order.map(|n| n - 1);
+            Row::new(&s.name, index, Some(setup), &setup.links, pending)
+        })
+        .collect()
+}
+
+/// How many rows there are of each kind.
+pub fn counts(rows: &[Row]) -> HashMap<Kind, usize> {
+    let mut counts = HashMap::new();
+    for row in rows {
+        *counts.entry(row.kind).or_insert(0) += 1;
+    }
+    counts
+}
+
+/// A plain-text report of `rows` under `title`, for the clipboard.
+pub fn report(title: &str, rows: &[Row]) -> String {
+    let mut out = format!("{title}\n\n");
+    for row in rows {
+        let mut status = row.kind.label().to_string();
+        if row.pending {
+            status.push_str(" (not applied)");
+        }
+        if !row.links.is_empty() {
+            status = format!("{status}: {}", row.links.join(" "));
+        }
+        out.push_str(&format!("{}\t{}\t{status}\n", row.index_text(), row.name));
+    }
+    out
+}
+
+/// A filter per column of a plugin table: text in the index and the name
+/// (any part, any case), and which statuses are hidden.
 #[derive(Debug, Default)]
 pub struct PluginFilter {
     pub index: String,
@@ -97,13 +254,12 @@ pub struct PluginFilter {
 }
 
 impl PluginFilter {
-    /// Whether the plugin at `index` in the load order passes.
-    pub fn matches(&self, index: usize, row: &PluginRow) -> bool {
+    pub fn matches(&self, row: &Row) -> bool {
         let has =
             |text: &str, part: &str| text.to_lowercase().contains(&part.trim().to_lowercase());
-        has(&format!("{index:02X}"), &self.index)
+        has(&row.index_text(), &self.index)
             && has(&row.name, &self.name)
-            && !self.hidden.contains(&row.kind())
+            && !self.hidden.contains(&row.kind)
     }
 
     pub fn is_active(&self) -> bool {
@@ -111,42 +267,23 @@ impl PluginFilter {
     }
 }
 
-/// A parsed save and the state of each of its plugins.
+/// An opened save and the masterlist links for its game.
 #[derive(Clone)]
 pub struct Analysis {
-    pub path: String,
-    pub save: SaveInfo,
-    pub plugins: Vec<PluginRow>,
+    pub path: PathBuf,
+    pub save: SaveFile,
+    pub links: Links,
 }
 
 impl Analysis {
-    pub fn new(
-        path: String,
-        save: SaveInfo,
-        mod_map: &HashMap<String, Plugin>,
-        installed: &HashSet<String>,
-    ) -> Self {
-        let plugins = save
-            .plugin_info
-            .plugins
-            .iter()
-            .map(|name| row(name, mod_map, installed))
-            .collect();
-        Self {
-            path,
-            save,
-            plugins,
-        }
-    }
-
     /// The screenshot the game took when saving: RGBA in Special Edition
-    /// saves, RGB in the original. `None` when the data doesn't match the size
-    /// in the header. Alpha is ignored, since the game doesn't use it.
+    /// saves, RGB in the original. `None` when the data doesn't match the
+    /// size in the header. Alpha is ignored, since the game doesn't use it.
     pub fn screenshot(&self) -> Option<egui::ColorImage> {
         let h = &self.save.header;
         let (w, ht) = (h.screenshot_width as usize, h.screenshot_height as usize);
-        let channels = if h.is_se { 4 } else { 3 };
-        let data = &self.save.screenshot_data;
+        let channels = h.screenshot_bytes_per_pixel();
+        let data = &self.save.screenshot;
         if w == 0 || ht == 0 || data.len() != w * ht * channels {
             return None;
         }
@@ -156,149 +293,168 @@ impl Analysis {
             .collect();
         Some(egui::ColorImage::new([w, ht], pixels))
     }
-
-    /// (installed, available, missing) among the mods.
-    pub fn counts(&self) -> (usize, usize, usize) {
-        let mut counts = (0, 0, 0);
-        for p in &self.plugins {
-            match p.status {
-                Status::Installed => counts.0 += 1,
-                Status::Available(_) => counts.1 += 1,
-                Status::Missing => counts.2 += 1,
-                Status::Included => {}
-            }
-        }
-        counts
-    }
-
-    /// A plain-text report of the save's plugins, for the clipboard.
-    pub fn report(&self) -> String {
-        let h = &self.save.header;
-        let mut out = format!(
-            "{} (level {}), save {}\n{}\n\n",
-            h.player_name, h.player_level, h.save_number, self.path
-        );
-        for p in &self.plugins {
-            let status = match &p.status {
-                Status::Included if p.origin == Origin::Native => "base game".to_string(),
-                Status::Included => "Creation Club".to_string(),
-                Status::Installed => "installed".to_string(),
-                Status::Available(urls) => format!("not installed: {}", urls.join(" ")),
-                Status::Missing => "not installed, not in the masterlist".to_string(),
-            };
-            out.push_str(&format!("{}\t{}\n", p.name, status));
-        }
-        out
-    }
-}
-
-fn row(name: &str, mod_map: &HashMap<String, Plugin>, installed: &HashSet<String>) -> PluginRow {
-    let origin = origin_of(name);
-    let status = if origin != Origin::Mod {
-        Status::Included
-    } else if installed.contains(&name.to_lowercase()) {
-        Status::Installed
-    } else if let Some(plugin) = mod_map.get(name).filter(|p| !p.urls.is_empty()) {
-        Status::Available(plugin.urls.clone())
-    } else {
-        Status::Missing
-    };
-    PluginRow {
-        name: name.to_string(),
-        origin,
-        status,
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn given_known_native_file_should_return_native_type() {
-        assert_eq!(origin_of("Skyrim.esm"), Origin::Native);
+    fn status(
+        name: &str,
+        state: State,
+        is_cc: bool,
+        is_forced: bool,
+        load_order: Option<usize>,
+    ) -> PluginStatus {
+        PluginStatus {
+            name: name.into(),
+            state,
+            is_cc,
+            is_forced,
+            is_master: false,
+            load_order,
+        }
     }
 
-    #[test]
-    fn given_known_creation_club_file_should_return_creation_club_type() {
-        assert_eq!(origin_of("cceejsse001-hstead.esm"), Origin::CreationClub);
-    }
-
-    #[test]
-    fn given_known_mod_file_should_return_mod_type() {
-        assert_eq!(origin_of("TrueStormsSE.esp"), Origin::Mod);
-    }
-
-    #[test]
-    fn mods_are_installed_available_or_missing() {
-        let mut mod_map = HashMap::new();
-        mod_map.insert(
-            "Frostfall.esp".to_string(),
-            Plugin {
-                name: "Frostfall.esp".into(),
-                urls: vec!["https://example.com/frostfall".into()],
-            },
+    fn setup() -> Setup {
+        let mut links = Links::new();
+        links.insert(
+            "frostfall.esp".into(),
+            vec!["https://example.com/frostfall".into()],
         );
-        mod_map.insert(
-            "NoLinks.esp".to_string(),
-            Plugin {
-                name: "NoLinks.esp".into(),
-                urls: vec![],
-            },
-        );
-        let installed: HashSet<String> = ["truestormsse.esp".to_string()].into();
+        Setup {
+            statuses: vec![
+                status("Skyrim.esm", State::Enabled, false, true, Some(1)),
+                status("ccBGSSSE001-Fish.esm", State::Enabled, true, true, Some(2)),
+                status("TrueStormsSE.esp", State::Enabled, false, false, Some(3)),
+                status("Off.esp", State::Disabled, false, false, None),
+                status("Frostfall.esp", State::Missing, false, false, None),
+            ],
+            links,
+        }
+    }
 
-        let status = |name: &str| row(name, &mod_map, &installed).status;
-        assert_eq!(status("Skyrim.esm"), Status::Included);
-        assert_eq!(status("ccbgssse001-fish.esm"), Status::Included);
-        assert_eq!(status("TrueStormsSE.esp"), Status::Installed);
+    fn kind(name: &str, setup: Option<&Setup>, pending: &Pending) -> Kind {
+        let links = setup.map(|s| s.links.clone()).unwrap_or_default();
+        Row::new(name, None, setup, &links, pending).kind
+    }
+
+    #[test]
+    fn rows_take_their_state_from_the_setup() {
+        let setup = setup();
+        let none = Pending::default();
+        assert_eq!(kind("Skyrim.esm", Some(&setup), &none), Kind::BaseGame);
         assert_eq!(
-            status("Frostfall.esp"),
-            Status::Available(vec!["https://example.com/frostfall".into()])
+            kind("ccbgssse001-fish.esm", Some(&setup), &none),
+            Kind::CreationClub
         );
-        assert_eq!(status("NoLinks.esp"), Status::Missing);
-        assert_eq!(status("Unknown.esp"), Status::Missing);
+        assert_eq!(kind("truestormsse.esp", Some(&setup), &none), Kind::Active);
+        assert_eq!(kind("Off.esp", Some(&setup), &none), Kind::Disabled);
+        assert_eq!(
+            kind("Frostfall.esp", Some(&setup), &none),
+            Kind::NotInstalled
+        );
+        assert_eq!(kind("Unknown.esp", Some(&setup), &none), Kind::NotFound);
+    }
+
+    #[test]
+    fn without_the_game_names_say_what_they_can() {
+        let none = Pending::default();
+        assert_eq!(kind("Dawnguard.esm", None, &none), Kind::BaseGame);
+        assert_eq!(
+            kind("ccQDRSSE001-SurvivalMode.esl", None, &none),
+            Kind::CreationClub
+        );
+        assert_eq!(kind("TrueStormsSE.esp", None, &none), Kind::NotFound);
+    }
+
+    #[test]
+    fn pending_changes_switch_rows_until_switched_back() {
+        let setup = setup();
+        let mut pending = Pending::default();
+        pending.set(&setup, "OFF.ESP", true);
+        pending.set(&setup, "TrueStormsSE.esp", false);
+        assert_eq!(pending.len(), 2);
+        let row = Row::new("Off.esp", None, Some(&setup), &setup.links, &pending);
+        assert_eq!(
+            (row.kind, row.toggle, row.pending),
+            (Kind::Active, Some(true), true)
+        );
+        assert_eq!(
+            kind("TrueStormsSE.esp", Some(&setup), &pending),
+            Kind::Disabled
+        );
+        // Wanting what Plugins.txt already says is no change.
+        pending.set(&setup, "truestormsse.esp", true);
+        assert_eq!(pending.changes(), vec![("OFF.ESP".to_string(), true)]);
+        // Plugins that always load, or aren't there, can't be switched.
+        assert_eq!(
+            Row::new("Skyrim.esm", None, Some(&setup), &setup.links, &pending).toggle,
+            None
+        );
+        assert_eq!(
+            Row::new("Frostfall.esp", None, Some(&setup), &setup.links, &pending).toggle,
+            None
+        );
+    }
+
+    #[test]
+    fn the_load_order_lists_what_loads_first() {
+        let rows = load_order_rows(&setup(), &Pending::default());
+        let names: Vec<_> = rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "Skyrim.esm",
+                "ccBGSSSE001-Fish.esm",
+                "TrueStormsSE.esp",
+                "Frostfall.esp",
+                "Off.esp"
+            ]
+        );
+        assert_eq!(rows[2].index_text(), "02");
+        assert_eq!(rows[3].index_text(), "");
     }
 
     #[test]
     fn each_column_filters() {
-        let installed: HashSet<String> = ["truestormsse.esp".to_string()].into();
-        let rows: Vec<_> = [
-            "Skyrim.esm",
-            "ccbgssse001-fish.esm",
-            "TrueStormsSE.esp",
-            "Unknown.esp",
-        ]
-        .iter()
-        .map(|n| row(n, &HashMap::new(), &installed))
-        .collect();
+        let rows = load_order_rows(&setup(), &Pending::default());
         let shown = |filter: &PluginFilter| -> Vec<&str> {
             rows.iter()
-                .enumerate()
-                .filter(|(i, r)| filter.matches(*i, r))
-                .map(|(_, r)| r.name.as_str())
+                .filter(|r| filter.matches(r))
+                .map(|r| r.name.as_str())
                 .collect()
         };
 
         let mut filter = PluginFilter::default();
         assert!(!filter.is_active());
-        assert_eq!(shown(&filter).len(), 4);
+        assert_eq!(shown(&filter).len(), 5);
 
         filter.name = " storms ".into();
         assert_eq!(shown(&filter), ["TrueStormsSE.esp"]);
 
         filter = PluginFilter {
-            index: "03".into(),
+            index: "01".into(),
             ..Default::default()
         };
-        assert_eq!(shown(&filter), ["Unknown.esp"]);
+        assert_eq!(shown(&filter), ["ccBGSSSE001-Fish.esm"]);
 
         filter = PluginFilter::default();
-        filter.hidden.extend([Kind::BaseGame, Kind::CreationClub]);
+        filter
+            .hidden
+            .extend([Kind::BaseGame, Kind::CreationClub, Kind::Active]);
         assert!(filter.is_active());
-        assert_eq!(shown(&filter), ["TrueStormsSE.esp", "Unknown.esp"]);
+        assert_eq!(shown(&filter), ["Frostfall.esp", "Off.esp"]);
+    }
 
-        filter.name = "unknown".into();
-        assert_eq!(shown(&filter), ["Unknown.esp"]);
+    #[test]
+    fn the_report_names_each_plugin_and_its_state() {
+        let setup = setup();
+        let mut pending = Pending::default();
+        pending.set(&setup, "Off.esp", true);
+        let text = report("Load order", &load_order_rows(&setup, &pending));
+        assert!(text.starts_with("Load order\n\n00\tSkyrim.esm\tBase game\n"));
+        assert!(text.contains("\tOff.esp\tActive (not applied)\n"));
+        assert!(text.contains("\tFrostfall.esp\tNot installed: https://example.com/frostfall\n"));
     }
 }

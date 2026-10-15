@@ -1,43 +1,44 @@
-//! Reading saves off the UI thread. A save folder holds dozens of
-//! multi-megabyte files, and opening one also scans the game's `Data`
-//! folder, so all of it happens on a worker that reports back by channel.
+//! Reading and writing the game's files off the UI thread (ADR-0002). A
+//! save folder holds dozens of multi-megabyte files, reading the setup
+//! scans every plugin in `Data`, and the masterlist is a large YAML file,
+//! so all of it happens on a worker that reports back by channel.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::io::Read;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
-use crate::analysis::Analysis;
-use crate::mod_search::data_scanner::scan_installed_plugins;
-use crate::mod_search::vortex_scanner::{get_masterlist_data, Plugin};
-use crate::save_file_parser::header::Header;
-use crate::save_file_parser::{parse, parse_header_only};
-use crate::utils::skyrim_se::find_skyrim_data_path;
+use skyplug_core::saves::{self, SaveEntry};
+use skyplug_core::GamePaths;
 
-/// One `.ess` file, with just its header read.
-#[derive(Clone)]
-pub struct SaveFile {
-    pub path: PathBuf,
-    pub file_name: String,
-    pub header: Header,
-}
+use crate::analysis::{Analysis, Links, Setup};
+use crate::game;
+use crate::mod_search::vortex_scanner::get_masterlist_data;
 
 /// A save folder's saves, by character name, newest save first.
-pub type Characters = BTreeMap<String, Vec<SaveFile>>;
+pub type Characters = BTreeMap<String, Vec<SaveEntry>>;
 
 pub enum Command {
+    /// Find the game: the install in this folder, or Steam's.
+    FindGame(Option<PathBuf>),
     ScanFolder(PathBuf),
+    /// Read Data, Plugins.txt and Skyrim.ccc.
+    ReadSetup(GamePaths),
     OpenSave(PathBuf),
+    /// Write these (exact name, on) changes to this Plugins.txt.
+    Apply(PathBuf, Vec<(String, bool)>),
 }
 
 pub enum Update {
+    Game(Result<GamePaths, String>),
     Folder {
         path: PathBuf,
         characters: Characters,
         unreadable: usize,
     },
+    Setup(Result<Setup, String>),
     Save(Result<Box<Analysis>, String>),
+    /// How many lines of Plugins.txt changed.
+    Applied(Result<usize, String>),
 }
 
 pub struct Loader {
@@ -53,8 +54,12 @@ impl Loader {
         let (outbox, updates) = channel();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
+            let mut masterlists = Masterlists::default();
             for command in inbox {
                 let update = match command {
+                    Command::FindGame(folder) => Update::Game(
+                        game::find(folder.as_deref()).map(|install| game::paths(&install)),
+                    ),
                     Command::ScanFolder(path) => {
                         let (characters, unreadable) = scan_folder(&path);
                         Update::Folder {
@@ -63,7 +68,16 @@ impl Loader {
                             unreadable,
                         }
                     }
-                    Command::OpenSave(path) => Update::Save(open_save(&path).map(Box::new)),
+                    Command::ReadSetup(paths) => {
+                        Update::Setup(read_setup(&paths, &mut masterlists))
+                    }
+                    Command::OpenSave(path) => {
+                        Update::Save(open_save(&path, &mut masterlists).map(Box::new))
+                    }
+                    Command::Apply(plugins_txt, changes) => Update::Applied(
+                        skyplug_core::plugins::apply_changes(&plugins_txt, &changes)
+                            .map_err(|e| format!("{e:#}")),
+                    ),
                 };
                 if outbox.send(update).is_err() {
                     break;
@@ -95,96 +109,70 @@ impl Loader {
     }
 }
 
-fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
-    let mut buf = Vec::new();
-    std::fs::File::open(path)?.read_to_end(&mut buf)?;
-    Ok(buf)
-}
+/// The Vortex masterlists, read once per game.
+#[derive(Default)]
+struct Masterlists(HashMap<&'static str, Links>);
 
-/// The parser indexes into the file without bounds checks, so a truncated
-/// or foreign file panics; treat that as unreadable rather than losing the
-/// worker.
-fn guarded<T>(f: impl FnOnce() -> T) -> Option<T> {
-    catch_unwind(AssertUnwindSafe(f)).ok()
+impl Masterlists {
+    fn links(&mut self, game: &'static str) -> &Links {
+        self.0.entry(game).or_insert_with(|| {
+            get_masterlist_data(game)
+                .map(|plugins| {
+                    plugins
+                        .into_iter()
+                        .filter(|p| !p.urls.is_empty())
+                        .map(|p| (p.name.to_lowercase(), p.urls))
+                        .collect()
+                })
+                .unwrap_or_default()
+        })
+    }
 }
 
 /// Every readable `.ess` in `folder`, grouped by character, and how many
 /// couldn't be read.
 pub fn scan_folder(folder: &Path) -> (Characters, usize) {
     let mut characters = Characters::new();
-    let mut unreadable = 0;
-    let Ok(entries) = std::fs::read_dir(folder) else {
-        tracing::error!("Could not read save folder {:?}", folder);
-        return (characters, 0);
+    let list = match saves::list_saves(folder) {
+        Ok(list) => list,
+        Err(e) => {
+            tracing::error!("{e:#}");
+            return (characters, 0);
+        }
     };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_file() || path.extension().is_none_or(|e| e != "ess") {
-            continue;
-        }
-        let header = read_file(&path)
-            .ok()
-            .and_then(|buf| guarded(|| parse_header_only(buf)));
-        let Some(header) = header else {
-            unreadable += 1;
-            continue;
-        };
-        let file_name = path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned();
+    // Already newest first, by the time each save was written.
+    for entry in list.entries {
         characters
-            .entry(header.player_name.clone())
+            .entry(entry.header.player_name.clone())
             .or_default()
-            .push(SaveFile {
-                path,
-                file_name,
-                header,
-            });
+            .push(entry);
     }
-    for saves in characters.values_mut() {
-        saves.sort_by_key(|s| std::cmp::Reverse(s.header.save_number));
-    }
-    (characters, unreadable)
+    (characters, list.skipped.len())
 }
 
-fn load_mod_map(game: &str) -> HashMap<String, Plugin> {
-    get_masterlist_data(game)
-        .map(|plugins| plugins.into_iter().map(|p| (p.name.clone(), p)).collect())
-        .unwrap_or_default()
+fn read_setup(paths: &GamePaths, masterlists: &mut Masterlists) -> Result<Setup, String> {
+    let statuses = paths.plugin_status().map_err(|e| format!("{e:#}"))?;
+    Ok(Setup {
+        statuses,
+        links: masterlists.links("skyrimse").clone(),
+    })
 }
 
-/// Plugins actually present on disk, found by scanning the game's `Data`
-/// directory directly rather than reading a mod manager's config - this
-/// picks up manually installed mods, not just ones a manager tracks.
-fn load_installed() -> HashSet<String> {
-    match find_skyrim_data_path() {
-        Some(data_path) => scan_installed_plugins(&data_path),
-        None => {
-            tracing::error!("Could not find Skyrim Data directory to scan for installed plugins.");
-            HashSet::new()
-        }
-    }
-}
-
-fn open_save(path: &Path) -> Result<Analysis, String> {
+fn open_save(path: &Path, masterlists: &mut Masterlists) -> Result<Analysis, String> {
     tracing::info!("Loading file: {:?}", path);
-    let buf = read_file(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let save = guarded(|| parse(buf))
-        .ok_or_else(|| format!("{} isn't a save Arcanaeum can read", path.display()))?;
-    let mod_map = load_mod_map(if save.header.is_se {
-        "skyrimse"
-    } else {
-        "skyrim"
-    });
-    let installed = load_installed();
-    Ok(Analysis::new(
-        path.display().to_string(),
+    let save = saves::read_save_from_file(path).map_err(|e| format!("{e:#}"))?;
+    let links = masterlists
+        .links(if save.header.is_se {
+            "skyrimse"
+        } else {
+            "skyrim"
+        })
+        .clone();
+    Ok(Analysis {
+        path: path.to_path_buf(),
         save,
-        &mod_map,
-        &installed,
-    ))
+        links,
+    })
 }
 
 #[cfg(test)]

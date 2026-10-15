@@ -3,14 +3,16 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-
-use crate::utils::skyrim_se::find_default_save_folder;
+use skyplug_core::GamePaths;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    /// The save folder picked with File > Open Save Folder; found from the
-    /// Steam install when unset.
+    /// The game folder picked with File > Set Game Folder; Steam's install
+    /// when unset.
+    pub game_folder: Option<PathBuf>,
+    /// The save folder picked with File > Open Save Folder; the game's
+    /// when unset.
     pub save_folder: Option<PathBuf>,
     pub skin: Option<String>,
     pub system_title_bar: bool,
@@ -37,15 +39,16 @@ impl Config {
     }
 
     /// The chosen save folder, else the game's, else where Windows keeps it.
-    pub fn save_folder(&self) -> PathBuf {
+    pub fn save_folder(&self, game: Option<&GamePaths>) -> PathBuf {
         if let Some(folder) = &self.save_folder {
             return folder.clone();
         }
-        find_default_save_folder().unwrap_or_else(|| {
-            dirs::document_dir()
+        match game {
+            Some(paths) => paths.saves_dir.clone(),
+            None => dirs::document_dir()
                 .unwrap_or_default()
-                .join("My Games/Skyrim Special Edition/Saves")
-        })
+                .join("My Games/Skyrim Special Edition/Saves"),
+        }
     }
 }
 
@@ -56,6 +59,7 @@ mod tests {
     #[test]
     fn round_trips_through_toml() {
         let config = Config {
+            game_folder: Some(PathBuf::from("/games/Skyrim Special Edition")),
             save_folder: Some(PathBuf::from("/saves")),
             skin: Some("Dark Orange".into()),
             system_title_bar: true,

@@ -1,4 +1,3 @@
-pub mod data_scanner;
 pub mod vortex_scanner;
 use std::collections::HashMap;
 

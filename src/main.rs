@@ -1,16 +1,24 @@
-//! Arcanaeum: reads your Skyrim saves to find which mods each one needs.
-//! Built on egui and Patina.
+//! Arcanaeum: reads your Skyrim saves to find which mods each one needs,
+//! and manages the game's load order. Built on egui and Patina.
+
+// A release build on Windows opens no console window beside the app.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod analysis;
 mod app;
 mod config;
 mod features;
+mod game;
 mod loader;
 mod mod_search;
-mod save_file_parser;
-mod utils;
+mod table;
 
-const WINDOW_ICON_PNG: &[u8] = include_bytes!("../assets/icon-256.png");
+/// The app id, which Wayland matches to the installed launcher for the icon.
+const APP_ID: &str = "com.github.divanvisagie.Arcanaeum";
+
+/// The window icon, rendered from `packaging/linux/arcanaeum.svg` by `make
+/// icons`. On Wayland, GNOME shows the installed launcher's icon instead.
+const WINDOW_ICON_PNG: &[u8] = include_bytes!("../assets/arcanaeum-icon-128.png");
 
 fn window_icon() -> egui::IconData {
     let icon = image::load_from_memory(WINDOW_ICON_PNG)
@@ -27,7 +35,7 @@ fn main() -> eframe::Result {
         viewport: patina::frame::viewport(
             egui::ViewportBuilder::default()
                 .with_title("Arcanaeum")
-                .with_app_id("com.github.divanvisagie.Arcanaeum")
+                .with_app_id(APP_ID)
                 .with_icon(window_icon())
                 .with_inner_size([1280.0, 768.0])
                 .with_min_inner_size([720.0, 420.0]),
@@ -43,6 +51,6 @@ mod tests {
     #[test]
     fn window_icon_decodes_at_its_size() {
         let icon = super::window_icon();
-        assert_eq!((icon.width, icon.height), (256, 256));
+        assert_eq!((icon.width, icon.height), (128, 128));
     }
 }
