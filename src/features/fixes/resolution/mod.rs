@@ -47,7 +47,9 @@ mod test {
         assert!(path.is_some());
     }
 
+    // Rewrites the real SkyrimPrefs.ini; run only on purpose.
     #[test]
+    #[ignore]
     fn test_set_skyrim_resolution() {
         let result = fix_resolution();
         assert!(result.is_ok());

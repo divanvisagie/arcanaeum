@@ -1,12 +1,11 @@
 pub mod data_scanner;
 pub mod vortex_scanner;
-use eframe::egui::TextBuffer;
 use std::collections::HashMap;
 
 use urlencoding::encode;
 
 fn get_url_for_search(term: &str) -> String {
-    let encoded = encode(term.as_str()).to_string();
+    let encoded = encode(term).to_string();
     format!("https://search.nexusmods.com/mods?terms={}&game_id=1704&blocked_tags=1069&blocked_authors=&include_adult=1", encoded)
 }
 

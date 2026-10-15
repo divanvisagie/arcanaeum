@@ -2,14 +2,21 @@
 name = "arcanaeum"
 version = "0.2.9"
 edition = "2021"
+license = "MIT"
+description = "Reads your Skyrim saves to find which mods each one needs"
+repository = "https://github.com/divanvisagie/arcanaeum"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rfd = "0.11.3"
+rfd = "0.17"
 tracing = "0.1.29"
 tracing-subscriber = "0.3.3"
-eframe = "0.36.2"
+eframe = "0.35"
+egui = "0.35"
+patina-ui = "0.1.7"
+egui_extras = "0.35"
+toml = "1"
 urlencoding = "2.1.0"
 rmp = "0.8.10"
 webbrowser = "0.5.5"

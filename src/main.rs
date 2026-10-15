@@ -1,97 +1,48 @@
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::io::Error;
-use std::io::Read;
+//! Arcanaeum: reads your Skyrim saves to find which mods each one needs.
+//! Built on egui and Patina.
 
-use eframe::egui;
-
-use mod_search::data_scanner::scan_installed_plugins;
-use mod_search::vortex_scanner::get_masterlist_data;
-use mod_search::vortex_scanner::Plugin;
-use save_file_parser::SaveInfo;
-
-use crate::app::AppState;
-use crate::config::create_config_if_not_exists;
-use crate::save_file_parser::parse;
-use crate::utils::skyrim_se::find_skyrim_data_path;
-
+mod analysis;
 mod app;
-mod components;
 mod config;
 mod features;
+mod loader;
 mod mod_search;
 mod save_file_parser;
-mod sktypes;
 mod utils;
 
-fn load_mod_map(game: &str) -> HashMap<String, Plugin> {
-    let mut map = HashMap::new();
-    if let Ok(plugins) = get_masterlist_data(game) {
-        for plugin in plugins {
-            map.insert(plugin.name.clone(), plugin);
-        }
-    }
-    map
+const WINDOW_ICON_PNG: &[u8] = include_bytes!("../assets/icon-256.png");
+
+fn window_icon() -> egui::IconData {
+    let icon = image::load_from_memory(WINDOW_ICON_PNG)
+        .expect("embedded window icon should decode")
+        .to_rgba8();
+    let (width, height) = icon.dimensions();
+    egui::IconData { rgba: icon.into_raw(), width, height }
 }
 
-/// Plugins actually present on disk, found by scanning the game's `Data`
-/// directory directly rather than reading a mod manager's config - this
-/// picks up manually installed mods, not just ones a manager tracks.
-fn load_installed() -> HashSet<String> {
-    match find_skyrim_data_path() {
-        Some(data_path) => scan_installed_plugins(&data_path),
-        None => {
-            tracing::error!("Could not find Skyrim Data directory to scan for installed plugins.");
-            HashSet::new()
-        }
-    }
-}
-
-fn load_saveinfo_from_path(path: String) -> Result<SaveInfo, Error> {
-    tracing::info!("Loading file: {:?}", path);
-    let mut file = std::fs::File::open(path)?;
-
-    let mut buf: Vec<u8> = Vec::new();
-    file.read_to_end(&mut buf)?;
-
-    let parsed = parse(buf);
-    Ok(parsed)
-}
-
-fn main() {
+fn main() -> eframe::Result {
     tracing_subscriber::fmt::init();
-    tracing::info!("App booting...");
-
-    create_config_if_not_exists();
-
-    let icon_data = {
-        let icon_raw = include_bytes!("../assets/icon-256.png");
-        let image = image::load_from_memory(icon_raw).expect("icon must be valid");
-        let image = image.to_rgba8();
-        egui::IconData {
-            width: image.width(),
-            height: image.height(),
-            rgba: image.into_vec(),
-        }
-    };
-
-    let window_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size(egui::Vec2::new(1280., 768.))
-            .with_resizable(true)
-            .with_decorations(true)
-            .with_icon(icon_data),
+    let config = config::Config::load();
+    let options = eframe::NativeOptions {
+        viewport: patina::frame::viewport(
+            egui::ViewportBuilder::default()
+                .with_title("Arcanaeum")
+                .with_app_id("com.github.divanvisagie.Arcanaeum")
+                .with_icon(window_icon())
+                .with_inner_size([1280.0, 768.0])
+                .with_min_inner_size([720.0, 420.0]),
+            !config.system_title_bar,
+        ),
         ..Default::default()
     };
+    eframe::run_native("arcanaeum", options, Box::new(|cc| Ok(Box::new(app::App::new(cc, config)))))
+}
 
-    match eframe::run_native(
-        "Arcanaeum",
-        window_options,
-        Box::new(|_cc| Ok(Box::<AppState>::default())),
-    ) {
-        Ok(_) => {}
-        Err(e) => {
-            tracing::error!("Error: {}", e);
-        }
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn window_icon_decodes_at_its_size() {
+        let icon = super::window_icon();
+        assert_eq!((icon.width, icon.height), (256, 256));
     }
 }
