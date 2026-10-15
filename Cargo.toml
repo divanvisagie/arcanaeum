@@ -2,7 +2,7 @@
 name = "arcanaeum"
 version = "0.2.9"
 edition = "2021"
-license = "MIT"
+license = "BSD-3-Clause"
 description = "Reads your Skyrim saves to find which mods each one needs"
 repository = "https://github.com/divanvisagie/arcanaeum"
 

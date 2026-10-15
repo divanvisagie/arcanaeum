@@ -45,6 +45,7 @@ mechanics of adding one.
 | [0001](0001-build-on-patina.md) | Rebuild Arcanaeum's window on Patina | Accepted |
 | [0002](0002-read-saves-off-the-ui-thread.md) | Read saves on a worker thread | Proposed |
 | [0003](0003-copy-report-is-the-output-action.md) | Copy Report is the title bar's output action | Proposed |
+| [0004](0004-relicense-as-bsd-3-clause.md) | Relicense from MIT to BSD 3-Clause | Accepted |
 
 ## Decision Relationship
 
@@ -52,6 +53,7 @@ mechanics of adding one.
 flowchart TD
     A[0001: window on Patina] --> B[0002: saves read off the UI thread]
     A --> C[0003: Copy Report as output action]
+    D[0004: BSD 3-Clause licence]
 ```
 
 ## Revisit Triggers

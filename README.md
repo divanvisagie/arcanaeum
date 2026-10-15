@@ -55,6 +55,10 @@ Run `make` to list the targets:
 Settings are kept in `~/.config/arcanaeum/config.toml`. Design decisions are in
 [`docs/adr/`](docs/adr/README.md).
 
+## Licence
+
+BSD 3-Clause, see [LICENSE](LICENSE). Versions before October 2026 were released under MIT.
+
 ## Resources
 
 ## Info about the file format
