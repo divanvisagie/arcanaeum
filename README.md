@@ -1,6 +1,9 @@
-# <img src="packaging/linux/arcanaeum.svg" width="40" align="top"> Arcanaeum
+# Arcanaeum
 
 Arcanaeum will analyse your Skyrim save games to determine which mods you used for that save, and manage your load order.
+# <img src="packaging/linux/arcanaeum.svg" width="120" align="top"> 
+
+
 
 Pick a character and one of their saves, and Arcanaeum lists every plugin the save was made with: base game, Creation Club, active, disabled (in the game's `Data` folder but switched off in `Plugins.txt`), or not installed, with download links from the Vortex masterlist where it has them, beside the screenshot the game took when saving. **Enable Disabled Plugins** switches on everything the save needs that's already installed.
 
@@ -56,8 +59,6 @@ Run `make` to list the targets:
 - `make screenshot`: regenerate `docs/screenshot-*.png` from Divan's newest save, in a scratch config (`CHARACTER=Name` for another character).
 - `make icons`: render the window icon from `packaging/linux/arcanaeum.svg`.
 - `make build`: a release binary.
-
-Until skyplug-core 0.1.1 is on crates.io, the build uses a [skyplug](https://github.com/divanvisagie/skyplug) checkout next to this one (`../skyplug`).
 
 Settings are kept in `~/.config/arcanaeum/config.toml`. Design decisions are in [`docs/adr/`](docs/adr/README.md).
 

@@ -3932,6 +3932,8 @@ dependencies = [
 [[package]]
 name = "skyplug-core"
 version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f95f002b126de3c4213d49c29b9f0330cab4ee04d891ae5ea0bf625a7eead3b"
 dependencies = [
  "anyhow",
  "dirs 7.0.0",
