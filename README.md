@@ -1,7 +1,8 @@
 # Arcanaeum
 
+![Arcanaeum's icon](docs/icon.png)
+
 Arcanaeum will analyse your Skyrim save games to determine which mods you used for that save, and manage your load order.
-# <img src="packaging/linux/arcanaeum.svg" width="120" align="top"> 
 
 
 
