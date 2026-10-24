@@ -115,10 +115,10 @@ fn empty_dir(name: &str) -> PathBuf {
 #[test]
 fn an_empty_folder_says_so_under_word_menus() {
     let ctx = egui::Context::default();
-    let config = Config {
+    let config = Config::with(Install {
         save_folder: Some(empty_dir("arcanaeum_empty_folder_test")),
-        ..Default::default()
-    };
+        ..Install::default()
+    });
     let mut app = App::with_context(&ctx, config);
     let screen = settle(&mut app, &ctx);
     for text in [
@@ -126,7 +126,7 @@ fn an_empty_folder_says_so_under_word_menus() {
         "Edit",
         "View",
         "Skins",
-        "Arcanaeum",
+        "Skyrim",
         "Apply",
         "Copy Report",
         "Load Order",
@@ -166,11 +166,11 @@ fn fake_install(name: &str) -> (PathBuf, PathBuf) {
 fn switching_a_plugin_waits_for_apply() {
     let (game_folder, plugins_txt) = fake_install("arcanaeum_fake_install_test");
     let ctx = egui::Context::default();
-    let config = Config {
+    let config = Config::with(Install {
         game_folder: Some(game_folder),
         save_folder: Some(empty_dir("arcanaeum_fake_install_saves")),
-        ..Default::default()
-    };
+        ..Install::default()
+    });
     let mut app = App::with_context(&ctx, config);
     let screen = settle(&mut app, &ctx);
     assert!(
@@ -246,10 +246,10 @@ fn real_saves() -> PathBuf {
 /// The real game, but saves from `ARCANAEUM_TEST_SAVES`, with the newest
 /// save open. Nothing is written.
 fn open_newest_real_save(ctx: &egui::Context) -> App {
-    let config = Config {
+    let config = Config::with(Install {
         save_folder: Some(real_saves()),
-        ..Default::default()
-    };
+        ..Install::default()
+    });
     let mut app = App::with_context(ctx, config);
     settle(&mut app, ctx);
     let save = app.characters.values().next().expect("no saves")[0]
@@ -364,4 +364,93 @@ fn the_plugin_columns_filter() {
     let screen = frame(&mut app, &ctx);
     assert!(!app.save_filter.is_active());
     assert!(screen.contains("Skyrim.esm"), "{screen}");
+}
+
+/// GOG's build outside any Steam library, set up in Settings like any
+/// other copy: its folder and Wine prefix, then Save.
+#[cfg(not(windows))]
+#[test]
+fn a_gog_install_is_set_up_in_settings() {
+    let (gog, plugins_txt) = fake_gog_install("arcanaeum_gog_install_test");
+    let ctx = egui::Context::default();
+    let mut app = App::with_context(&ctx, Config::with(Install::default()));
+    let screen = settle(&mut app, &ctx);
+    assert!(screen.contains("No game folder is set"), "{screen}");
+
+    let _ = frame_with(&mut app, &ctx, key(egui::Key::Comma, egui::Modifiers::COMMAND));
+    // The modal's first frame only measures it.
+    frame(&mut app, &ctx);
+    let screen = frame(&mut app, &ctx);
+    for text in ["Settings", "Name", "Game folder", "Wine prefix", "Save folder", "Fill In From Steam"] {
+        assert!(screen.contains(text), "{text:?} not on screen:\n{screen}");
+    }
+    let draft = app.settings.as_mut().unwrap();
+    draft.name = "GOG".into();
+    draft.game = gog.game_folder.unwrap().display().to_string();
+    draft.prefix = gog.wine_prefix.unwrap().display().to_string();
+    click_text(&mut app, &ctx, "Save");
+    let screen = settle(&mut app, &ctx);
+    assert!(app.settings.is_none());
+    assert_eq!(app.config.install().name, "GOG");
+    assert_eq!(app.paths().map(|p| p.plugins_txt.clone()), Some(plugins_txt));
+    assert!(screen.contains("Mod.esp") && screen.contains("Active"), "{screen}");
+}
+
+/// Steam's copy in one tab, GOG's in another: a click on a tab shows its
+/// copy, but not while changes to the shown one wait to be applied.
+#[cfg(not(windows))]
+#[test]
+fn tabs_switch_between_copies_of_the_game() {
+    let (steam_folder, steam_plugins_txt) = fake_install("arcanaeum_tabs_steam");
+    let (gog, gog_plugins_txt) = fake_gog_install("arcanaeum_tabs_gog");
+    let mut config = Config::with(Install {
+        game_folder: Some(steam_folder),
+        save_folder: Some(empty_dir("arcanaeum_tabs_steam_saves")),
+        ..Install::named("Steam")
+    });
+    config.installs.push(gog);
+    let ctx = egui::Context::default();
+    let mut app = App::with_context(&ctx, config);
+    let screen = settle(&mut app, &ctx);
+    assert!(screen.contains("Steam") && screen.contains("GOG"), "{screen}");
+    assert_eq!(app.paths().map(|p| p.plugins_txt.clone()), Some(steam_plugins_txt.clone()));
+
+    app.act(&ctx, Do::Switch("Mod.esp".into(), true));
+    click_text(&mut app, &ctx, "GOG");
+    assert_eq!(app.config.shown, 0, "changes not applied keep the tab");
+
+    app.act(&ctx, Do::Revert);
+    click_text(&mut app, &ctx, "GOG");
+    settle(&mut app, &ctx);
+    assert_eq!(app.config.shown, 1);
+    assert_eq!(app.paths().map(|p| p.plugins_txt.clone()), Some(gog_plugins_txt));
+
+    let _ = frame_with(&mut app, &ctx, key(egui::Key::PageUp, egui::Modifiers::CTRL));
+    settle(&mut app, &ctx);
+    assert_eq!(app.paths().map(|p| p.plugins_txt.clone()), Some(steam_plugins_txt));
+}
+
+/// GOG's build outside any Steam library, in a temp folder, with its own
+/// Wine prefix: Data holds Skyrim.esm and Mod.esp (on).
+#[cfg(not(windows))]
+fn fake_gog_install(name: &str) -> (Install, PathBuf) {
+    let root = empty_dir(name);
+    let game = root.join("Skyrim Special Edition");
+    let prefix = root.join("prefix");
+    std::fs::create_dir_all(game.join("Data")).unwrap();
+    std::fs::write(game.join("goggame-1711230643.info"), "{}").unwrap();
+    for plugin in ["Skyrim.esm", "Mod.esp"] {
+        std::fs::write(game.join("Data").join(plugin), b"").unwrap();
+    }
+    std::fs::write(game.join("Skyrim.ccc"), b"").unwrap();
+    let local = prefix.join("drive_c/users/steamuser/AppData/Local/Skyrim Special Edition GOG");
+    std::fs::create_dir_all(&local).unwrap();
+    std::fs::write(local.join("Plugins.txt"), "*Mod.esp\n").unwrap();
+    let install = Install {
+        name: "GOG".into(),
+        game_folder: Some(game),
+        wine_prefix: Some(prefix),
+        save_folder: Some(empty_dir(&format!("{name}_saves"))),
+    };
+    (install, local.join("Plugins.txt"))
 }

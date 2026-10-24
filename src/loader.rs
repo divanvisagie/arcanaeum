@@ -18,8 +18,12 @@ use crate::mod_search::vortex_scanner::get_masterlist_data;
 pub type Characters = BTreeMap<String, Vec<SaveEntry>>;
 
 pub enum Command {
-    /// Find the game: the install in this folder, or Steam's.
-    FindGame(Option<PathBuf>),
+    /// Find the game: the install in this folder, or Steam's, with its
+    /// user files in this Wine prefix, or Steam's.
+    FindGame {
+        folder: Option<PathBuf>,
+        prefix: Option<PathBuf>,
+    },
     ScanFolder(PathBuf),
     /// Read Data, Plugins.txt and Skyrim.ccc.
     ReadSetup(GamePaths),
@@ -57,8 +61,9 @@ impl Loader {
             let mut masterlists = Masterlists::default();
             for command in inbox {
                 let update = match command {
-                    Command::FindGame(folder) => Update::Game(
-                        game::find(folder.as_deref()).map(|install| game::paths(&install)),
+                    Command::FindGame { folder, prefix } => Update::Game(
+                        game::find(folder.as_deref(), prefix.as_deref())
+                            .map(|install| game::paths(&install)),
                     ),
                     Command::ScanFolder(path) => {
                         let (characters, unreadable) = scan_folder(&path);

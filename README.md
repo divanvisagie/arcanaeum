@@ -12,7 +12,9 @@ Pick a character and one of their saves, and Arcanaeum lists every plugin the sa
 
 Each column of a plugin list has a filter in its header: the index, any part of the name, and which statuses to show. **Copy Report** puts the list on the clipboard.
 
-It works with Skyrim Special Edition on Steam, on Linux through Proton and on Windows. It finds the game through the Steam library that owns it; for a copy installed elsewhere, use File > Set Game Folder. The game's files are read and written through [skyplug-core](https://crates.io/crates/skyplug-core), the library behind [skyplug](https://github.com/divanvisagie/skyplug).
+It works with Skyrim Special Edition, Steam's or GOG's, on Linux through Proton or Wine and on Windows. Each copy is set up the same way in File > Settings: the folder holding `SkyrimSE.exe` and, on Linux, the Wine prefix it runs in (the folder holding `drive_c`), Steam's Proton prefix or GOG's under Wine or umu. **Fill In From Steam** fills both in with the copy Steam owns, and the first run does that by itself.
+
+Each copy of the game gets a tab in the title bar, with its own name, game folder, Wine prefix and save folder; Settings edits the tab shown. `+` adds a copy. A tab with plugins switched but not applied can't be left until they're applied or reverted. The game's files are read and written through [skyplug-core](https://crates.io/crates/skyplug-core), the library behind [skyplug](https://github.com/divanvisagie/skyplug).
 
 It's a [Patina](https://sectorflabs.com/patina/) app: an egui desktop app with its own window frame, the desktop's light/dark setting, and the suite's skins.
 
@@ -29,6 +31,9 @@ It's a [Patina](https://sectorflabs.com/patina/) app: an egui desktop app with i
 | --- | --- |
 | Ctrl+S | Apply the switched plugins to `Plugins.txt` |
 | Ctrl+O | Open a save folder |
+| Ctrl+, | Settings for the tab shown: its name, game folder, Wine prefix and save folder |
+| Ctrl+PageUp, Ctrl+PageDown | Show the tab before or after |
+| Ctrl+Shift+T | Add a tab for another copy of the game |
 | Ctrl+R, F5 | Reload the load order, the folder and the open save |
 | Ctrl+Shift+C | Copy the report of what's shown |
 | Ctrl+Q | Quit |

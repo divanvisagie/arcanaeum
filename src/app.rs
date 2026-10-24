@@ -1,16 +1,18 @@
-//! The window: Patina's frame and title bar; a sidebar with the game's load
-//! order and the characters and their saves; the chosen one in the middle;
-//! a status bar. Plugins switched on or off wait for Apply (ADR-0006).
+//! The window: Patina's frame and title bar, with a tab for each copy of the
+//! game (ADR-0008); a sidebar with the game's load order and the characters
+//! and their saves; the chosen one in the middle; a status bar. Plugins
+//! switched on or off wait for Apply (ADR-0006).
 
 use std::path::PathBuf;
 
 use patina::frame::{self, TitleBar};
 use patina::skin::{self, Skin};
+use patina::tabs::{self, TabAction, TabStrip};
 use skyplug_core::saves::{self, Sex};
 use skyplug_core::GamePaths;
 
 use crate::analysis::{self, Analysis, Kind, Pending, PluginFilter, Row, Setup};
-use crate::config::Config;
+use crate::config::{Config, Install};
 use crate::game;
 use crate::loader::{Characters, Command, Loader, Update};
 use crate::table::{plugin_table, Colours, SkinColours};
@@ -36,8 +38,14 @@ enum Selection {
 /// What the menus, shortcuts and panels ask for, handled after drawing.
 enum Do {
     OpenFolder,
-    SetGameFolder,
-    FindGameAutomatically,
+    /// Open Settings for the shown tab, or close it without saving.
+    Settings(bool),
+    /// Pick a folder for one of Settings' fields.
+    Browse(Field),
+    /// Fill Settings' folders in with Steam's copy of the game.
+    FillFromSteam,
+    SaveSettings,
+    Tab(TabAction),
     Reload,
     Select(Selection),
     CopyReport,
@@ -51,6 +59,73 @@ enum Do {
     ReloadSkins,
     SystemTitleBar(bool),
     Quit,
+}
+
+/// Settings' folder fields.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Field {
+    Game,
+    Prefix,
+    Saves,
+}
+
+impl Field {
+    fn label(self) -> &'static str {
+        match self {
+            Field::Game => "Game folder",
+            Field::Prefix => "Wine prefix",
+            Field::Saves => "Save folder",
+        }
+    }
+
+    fn hint(self) -> &'static str {
+        match self {
+            Field::Game => "The folder holding SkyrimSE.exe",
+            Field::Prefix => "The folder holding drive_c",
+            Field::Saves => "Empty: the game's own",
+        }
+    }
+}
+
+/// Settings for the shown tab as edited, until saved.
+#[derive(Debug, Default)]
+struct Draft {
+    name: String,
+    game: String,
+    prefix: String,
+    saves: String,
+    error: Option<String>,
+}
+
+impl Draft {
+    fn of(install: &Install) -> Self {
+        let text = |path: &Option<PathBuf>| path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+        Self {
+            name: install.name.clone(),
+            game: text(&install.game_folder),
+            prefix: text(&install.wine_prefix),
+            saves: text(&install.save_folder),
+            error: None,
+        }
+    }
+
+    fn field(&mut self, field: Field) -> &mut String {
+        match field {
+            Field::Game => &mut self.game,
+            Field::Prefix => &mut self.prefix,
+            Field::Saves => &mut self.saves,
+        }
+    }
+
+    fn install(&self) -> Install {
+        let path = |text: &str| Some(text.trim()).filter(|t| !t.is_empty()).map(PathBuf::from);
+        Install {
+            name: Some(self.name.trim()).filter(|n| !n.is_empty()).unwrap_or("Skyrim").to_string(),
+            game_folder: path(&self.game),
+            wine_prefix: path(&self.prefix),
+            save_folder: path(&self.saves),
+        }
+    }
 }
 
 /// Closing the window with changes not applied asks first.
@@ -90,6 +165,8 @@ pub struct App {
     save_filter: PluginFilter,
     order_filter: PluginFilter,
     closing: Closing,
+    /// Settings, while open.
+    settings: Option<Draft>,
     error: Option<String>,
     notice: Option<(String, f64)>,
     /// Screenshot mode: where to save, whether it was asked for, and when
@@ -130,14 +207,14 @@ impl App {
             save_filter: PluginFilter::default(),
             order_filter: PluginFilter::default(),
             closing: Closing::No,
+            settings: None,
             error: None,
             notice: None,
             screenshot: std::env::var_os("ARCANAEUM_SCREENSHOT")
                 .map(|p| (PathBuf::from(p), false, None)),
         };
         app.apply_skin(ctx);
-        app.loader
-            .send(Command::FindGame(app.config.game_folder.clone()));
+        app.loader.send(app.find_game_command());
         app
     }
 
@@ -210,7 +287,7 @@ impl App {
             match update {
                 Update::Game(game) => {
                     let folder = std::env::var_os("ARCANAEUM_SAVE_FOLDER").map_or_else(
-                        || self.config.save_folder(game.as_ref().ok()),
+                        || self.config.install().save_folder(game.as_ref().ok()),
                         PathBuf::from,
                     );
                     if let Ok(paths) = &game {
@@ -294,6 +371,9 @@ impl App {
         if pressed(Modifiers::COMMAND, Key::O) {
             actions.push(Do::OpenFolder);
         }
+        if pressed(Modifiers::COMMAND, Key::Comma) {
+            actions.push(Do::Settings(true));
+        }
         if pressed(Modifiers::COMMAND, Key::R) || pressed(Modifiers::NONE, Key::F5) {
             actions.push(Do::Reload);
         }
@@ -330,15 +410,7 @@ impl App {
                 "Ctrl+O",
                 Do::OpenFolder,
             );
-            item(ui, actions, true, "Set Game Folder…", "", Do::SetGameFolder);
-            item(
-                ui,
-                actions,
-                self.config.game_folder.is_some(),
-                "Find Game Through Steam",
-                "",
-                Do::FindGameAutomatically,
-            );
+            item(ui, actions, true, "Settings…", "Ctrl+,", Do::Settings(true));
             ui.separator();
             item(ui, actions, true, "Reload", "Ctrl+R", Do::Reload);
             ui.separator();
@@ -422,14 +494,70 @@ impl App {
         }
     }
 
+    /// Finding the game in the folder and prefix the config names.
+    fn find_game_command(&self) -> Command {
+        Command::FindGame {
+            folder: self.config.install().game_folder.clone(),
+            prefix: self.config.install().wine_prefix.clone(),
+        }
+    }
+
     /// Asks the game folder or the Steam lookup again, as the config now says.
     fn find_game(&mut self) {
         self.config.save();
         self.game = None;
         self.setup = None;
         self.pending.clear();
-        self.loader
-            .send(Command::FindGame(self.config.game_folder.clone()));
+        self.loader.send(self.find_game_command());
+    }
+
+    /// Shows the install in tab `i`, starting over: its game, its saves.
+    fn show_install(&mut self, i: usize) {
+        self.config.shown = i;
+        self.folder = None;
+        self.characters.clear();
+        self.unreadable = 0;
+        self.selection = Selection::LoadOrder;
+        self.analysis = None;
+        self.save_image = None;
+        self.find_game();
+    }
+
+    /// Tabs: show, add or close an install. Its Plugins.txt changes not
+    /// applied would be lost, so the shown one stays until they're gone.
+    fn tab(&mut self, ctx: &egui::Context, action: TabAction) {
+        let leaves = match action {
+            TabAction::Show(i) => i != self.config.shown,
+            TabAction::New => true,
+            TabAction::Close(i) => i == self.config.shown,
+        };
+        if leaves && !self.pending.is_empty() {
+            self.notify(ctx, "Apply or revert the changes first");
+            return;
+        }
+        match action {
+            TabAction::Show(i) if leaves => self.show_install(i),
+            TabAction::Show(_) => {}
+            TabAction::New => {
+                self.config.installs.push(Install::named("New Install"));
+                self.show_install(self.config.installs.len() - 1);
+                self.settings = Some(Draft::of(self.config.install()));
+            }
+            TabAction::Close(_) if self.config.installs.len() == 1 => {
+                self.notify(ctx, "The last tab stays");
+            }
+            TabAction::Close(i) => {
+                self.config.installs.remove(i);
+                if leaves {
+                    self.show_install(i.min(self.config.installs.len() - 1));
+                } else {
+                    if i < self.config.shown {
+                        self.config.shown -= 1;
+                    }
+                    self.config.save();
+                }
+            }
+        }
     }
 
     fn act(&mut self, ctx: &egui::Context, action: Do) {
@@ -440,7 +568,7 @@ impl App {
                     dialog = dialog.set_directory(folder);
                 }
                 if let Some(folder) = dialog.pick_folder() {
-                    self.config.save_folder = Some(folder.clone());
+                    self.config.install_mut().save_folder = Some(folder.clone());
                     self.config.save();
                     self.characters.clear();
                     self.selection = Selection::LoadOrder;
@@ -450,19 +578,49 @@ impl App {
                     self.folder = Some(folder);
                 }
             }
-            Do::SetGameFolder => {
-                let picked = rfd::FileDialog::new()
-                    .set_title("Set Game Folder (the one holding SkyrimSE.exe)")
-                    .pick_folder();
-                if let Some(folder) = picked {
-                    self.config.game_folder = Some(folder);
-                    self.find_game();
+            Do::Settings(true) => self.settings = Some(Draft::of(self.config.install())),
+            Do::Settings(false) => self.settings = None,
+            Do::Browse(field) => {
+                let Some(draft) = &mut self.settings else { return };
+                let mut dialog = rfd::FileDialog::new().set_title(field.hint());
+                let current = PathBuf::from(draft.field(field).trim());
+                if current.is_dir() {
+                    dialog = dialog.set_directory(current);
+                }
+                if let Some(folder) = dialog.pick_folder() {
+                    *draft.field(field) = folder.display().to_string();
                 }
             }
-            Do::FindGameAutomatically => {
-                self.config.game_folder = None;
-                self.find_game();
+            Do::FillFromSteam => {
+                let Some(draft) = &mut self.settings else { return };
+                match game::steam_copy() {
+                    Ok((game_folder, prefix)) => {
+                        draft.game = game_folder.display().to_string();
+                        draft.prefix = prefix.map(|p| p.display().to_string()).unwrap_or_default();
+                        draft.error = None;
+                    }
+                    Err(e) => draft.error = Some(e),
+                }
             }
+            Do::SaveSettings => {
+                let Some(draft) = &mut self.settings else { return };
+                let install = draft.install();
+                let current = self.config.install();
+                let moved = (&install.game_folder, &install.wine_prefix, &install.save_folder)
+                    != (&current.game_folder, &current.wine_prefix, &current.save_folder);
+                if moved && !self.pending.is_empty() {
+                    draft.error = Some("Apply or revert the switched plugins first.".into());
+                    return;
+                }
+                *self.config.install_mut() = install;
+                self.settings = None;
+                if moved {
+                    self.show_install(self.config.shown);
+                } else {
+                    self.config.save();
+                }
+            }
+            Do::Tab(action) => self.tab(ctx, action),
             Do::Reload => {
                 if let Some(paths) = self.paths().cloned() {
                     self.loader.send(Command::ReadSetup(paths));
@@ -635,11 +793,11 @@ impl App {
                 ui.heading("Skyrim Special Edition wasn't found");
                 ui.label(e);
                 ui.weak(
-                    "Arcanaeum looks for the Steam library that owns the game. For a copy \
-                     installed elsewhere, pick the folder holding SkyrimSE.exe.",
+                    "Set the folder holding SkyrimSE.exe in Settings, and on Linux the Wine \
+                     prefix it runs in, or fill both in from Steam's copy.",
                 );
-                if ui.button("Set Game Folder…").clicked() {
-                    actions.push(Do::SetGameFolder);
+                if ui.button("Settings…").clicked() {
+                    actions.push(Do::Settings(true));
                 }
                 return;
             }
@@ -900,6 +1058,72 @@ impl App {
         }
     }
 
+    /// The shown tab's settings: its name and folders, the same for any
+    /// copy of the game. Fill In From Steam finds Steam's copy's folders.
+    fn settings_window(&mut self, ctx: &egui::Context, actions: &mut Vec<Do>) {
+        let Some(draft) = &mut self.settings else {
+            return;
+        };
+        let modal = egui::Modal::new(egui::Id::new("settings")).show(ctx, |ui| {
+            ui.set_width(520.0);
+            ui.heading("Settings");
+            ui.weak("For the tab shown; each tab is a copy of the game.");
+            ui.add_space(8.0);
+            let mut fields = vec![Field::Game];
+            // On Windows the game's files are in the user's own folders.
+            if !cfg!(windows) {
+                fields.push(Field::Prefix);
+            }
+            fields.push(Field::Saves);
+            // Grid cells shrink to their content, so text fields are sized.
+            let field_size = egui::vec2(360.0, ui.spacing().interact_size.y);
+            egui::Grid::new("settings_fields")
+                .num_columns(3)
+                .spacing([8.0, 6.0])
+                .show(ui, |ui| {
+                    ui.label("Name");
+                    ui.add_sized(field_size, egui::TextEdit::singleline(&mut draft.name));
+                    ui.end_row();
+                    for field in fields {
+                        ui.label(field.label());
+                        ui.add_sized(
+                            field_size,
+                            egui::TextEdit::singleline(draft.field(field)).hint_text(field.hint()),
+                        );
+                        if ui.button("Browse…").clicked() {
+                            actions.push(Do::Browse(field));
+                        }
+                        ui.end_row();
+                    }
+                });
+            ui.add_space(4.0);
+            if ui
+                .button("Fill In From Steam")
+                .on_hover_text("Set the game folder and Wine prefix to Steam's copy of the game")
+                .clicked()
+            {
+                actions.push(Do::FillFromSteam);
+            }
+            if let Some(error) = &draft.error {
+                ui.add_space(4.0);
+                ui.colored_label(ui.visuals().error_fg_color, error);
+            }
+            ui.add_space(8.0);
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Save").clicked() {
+                    actions.push(Do::SaveSettings);
+                }
+                if ui.button("Cancel").clicked() {
+                    actions.push(Do::Settings(false));
+                }
+            });
+        });
+        if modal.should_close() {
+            actions.push(Do::Settings(false));
+        }
+    }
+
     /// Screenshot mode: once the first save is shown, save the window and quit.
     fn take_screenshot(&mut self, ctx: &egui::Context) {
         let ready = self.open_save().is_some()
@@ -950,22 +1174,38 @@ impl App {
 
         let mut actions = Vec::new();
         self.closing(&ctx, &mut actions);
-        if self.closing == Closing::No {
+        self.settings_window(&ctx, &mut actions);
+        if self.closing == Closing::No && self.settings.is_none() {
             self.shortcuts(&ctx, &mut actions);
         }
         let mut output = Vec::new();
-        egui::Panel::top("header")
-            .frame(frame::header_frame(ui.style(), &style, radius))
-            .show(ui, |ui| {
-                TitleBar::new("Arcanaeum", &style)
-                    .custom(self.custom_frame)
-                    .menu_bar(true)
-                    .show(
-                        ui,
-                        |ui| self.menus(ui, &mut actions),
-                        |ui| self.output(ui, &mut output),
-                    );
-            });
+        let titles: Vec<&str> = self.config.installs.iter().map(|i| i.name.as_str()).collect();
+        let shown = self.config.shown;
+        let mut tab = None;
+        if self.closing == Closing::No && self.settings.is_none() {
+            tab = tabs::keys(&ctx, titles.len(), shown);
+        }
+        let header = frame::header_frame(ui.style(), &style, radius);
+        egui::Panel::top("header").frame(header).show(ui, |ui| {
+            // The bar's full height, padding and all, for the tabs to fill.
+            let span = (ui.max_rect() + header.inner_margin).y_range();
+            TitleBar::new("", &style)
+                .custom(self.custom_frame)
+                .menu_bar(true)
+                .show(
+                    ui,
+                    |ui| {
+                        self.menus(ui, &mut actions);
+                        let strip = TabStrip::new(&titles, shown, &style)
+                            .span(span)
+                            .new_hint("New Install (Ctrl+Shift+T)")
+                            .show(ui);
+                        tab = tab.or(strip);
+                    },
+                    |ui| self.output(ui, &mut output),
+                );
+        });
+        actions.extend(tab.map(Do::Tab));
         actions.append(&mut output);
 
         // The status bar holds both bottom corners.

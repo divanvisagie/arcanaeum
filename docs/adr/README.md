@@ -48,6 +48,8 @@ mechanics of adding one.
 | [0004](0004-relicense-as-bsd-3-clause.md) | Relicense from MIT to BSD 3-Clause | Accepted |
 | [0005](0005-read-the-game-through-skyplug-core.md) | Read and write the game's files through skyplug-core | Accepted |
 | [0006](0006-switch-plugins-then-apply.md) | Switch plugins in memory, write Plugins.txt on Apply | Proposed |
+| [0007](0007-find-a-game-outside-steam-through-settings.md) | Find a game outside Steam through a game folder and Wine prefix set in Settings | Accepted |
+| [0008](0008-a-tab-for-each-copy-of-the-game.md) | A tab for each copy of the game | Accepted |
 
 ## Decision Relationship
 
@@ -57,6 +59,9 @@ flowchart TD
     A --> C[0003: Copy Report as output action]
     D[0004: BSD 3-Clause licence]
     E[0005: game files through skyplug-core] --> F[0006: switch, then Apply]
+    E --> G[0007: game folder and Wine prefix in Settings]
+    G --> H[0008: a tab for each copy]
+    A --> H
     B --> E
     C --> F
 ```
@@ -66,4 +71,7 @@ flowchart TD
 - Opening a save waits noticeably behind a folder scan → [ADR-0002](0002-read-saves-off-the-ui-thread.md).
 - Arcanaeum gains an action that fetches or installs mods → [ADR-0003](0003-copy-report-is-the-output-action.md).
 - skyplug-core 0.1.1 is published: drop the `path` dependency → [ADR-0005](0005-read-the-game-through-skyplug-core.md).
+- skyplug-core 0.2.0 is published: drop the `path` dependency → [ADR-0007](0007-find-a-game-outside-steam-through-settings.md).
+- A build other than Steam's or GOG's needs supporting → [ADR-0007](0007-find-a-game-outside-steam-through-settings.md).
+- Switched plugins blocking a tab switch gets in the way → [ADR-0008](0008-a-tab-for-each-copy-of-the-game.md).
 - Plugins need reordering, not just switching, or one backup proves too few → [ADR-0006](0006-switch-plugins-then-apply.md).
