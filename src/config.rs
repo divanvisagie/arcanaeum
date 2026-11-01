@@ -57,6 +57,10 @@ impl Default for Config {
 }
 
 pub fn dir() -> Option<PathBuf> {
+    // Tests save configs too; they never touch the installed app's.
+    #[cfg(test)]
+    return Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/scratch/config/arcanaeum"));
+    #[cfg(not(test))]
     dirs::config_dir().map(|d| d.join("arcanaeum"))
 }
 

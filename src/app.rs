@@ -46,6 +46,11 @@ enum Do {
     FillFromSteam,
     SaveSettings,
     Tab(TabAction),
+    /// Ask for a new name for this tab, from its right-click menu.
+    Rename(usize),
+    /// Give the tab being renamed this name.
+    RenameTo(String),
+    CancelRename,
     Reload,
     Select(Selection),
     CopyReport,
@@ -167,6 +172,8 @@ pub struct App {
     closing: Closing,
     /// Settings, while open.
     settings: Option<Draft>,
+    /// The tab being renamed and the name typed so far.
+    renaming: Option<(usize, String)>,
     error: Option<String>,
     notice: Option<(String, f64)>,
     /// Screenshot mode: where to save, whether it was asked for, and when
@@ -208,6 +215,7 @@ impl App {
             order_filter: PluginFilter::default(),
             closing: Closing::No,
             settings: None,
+            renaming: None,
             error: None,
             notice: None,
             screenshot: std::env::var_os("ARCANAEUM_SCREENSHOT")
@@ -621,6 +629,21 @@ impl App {
                 }
             }
             Do::Tab(action) => self.tab(ctx, action),
+            Do::Rename(i) => {
+                if let Some(install) = self.config.installs.get(i) {
+                    self.renaming = Some((i, install.name.clone()));
+                }
+            }
+            Do::RenameTo(name) => {
+                if let Some((i, _)) = self.renaming.take() {
+                    let name = name.trim();
+                    if let (false, Some(install)) = (name.is_empty(), self.config.installs.get_mut(i)) {
+                        install.name = name.to_string();
+                        self.config.save();
+                    }
+                }
+            }
+            Do::CancelRename => self.renaming = None,
             Do::Reload => {
                 if let Some(paths) = self.paths().cloned() {
                     self.loader.send(Command::ReadSetup(paths));
@@ -1124,6 +1147,38 @@ impl App {
         }
     }
 
+    /// The name for the tab chosen in its right-click menu.
+    fn rename_window(&mut self, ctx: &egui::Context, actions: &mut Vec<Do>) {
+        let Some((_, name)) = &mut self.renaming else {
+            return;
+        };
+        let modal = egui::Modal::new(egui::Id::new("rename")).show(ctx, |ui| {
+            ui.set_width(320.0);
+            ui.heading("Rename Tab");
+            ui.add_space(8.0);
+            let edit = ui.add_sized(
+                egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+                egui::TextEdit::singleline(name),
+            );
+            if !edit.has_focus() && !edit.lost_focus() {
+                edit.request_focus();
+            }
+            let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Rename").clicked() || enter {
+                    actions.push(Do::RenameTo(name.clone()));
+                }
+                if ui.button("Cancel").clicked() {
+                    actions.push(Do::CancelRename);
+                }
+            });
+        });
+        if modal.should_close() {
+            actions.push(Do::CancelRename);
+        }
+    }
+
     /// Screenshot mode: once the first save is shown, save the window and quit.
     fn take_screenshot(&mut self, ctx: &egui::Context) {
         let ready = self.open_save().is_some()
@@ -1175,14 +1230,22 @@ impl App {
         let mut actions = Vec::new();
         self.closing(&ctx, &mut actions);
         self.settings_window(&ctx, &mut actions);
-        if self.closing == Closing::No && self.settings.is_none() {
+        self.rename_window(&ctx, &mut actions);
+        if self.closing == Closing::No && self.settings.is_none() && self.renaming.is_none() {
             self.shortcuts(&ctx, &mut actions);
         }
         let mut output = Vec::new();
         let titles: Vec<&str> = self.config.installs.iter().map(|i| i.name.as_str()).collect();
         let shown = self.config.shown;
         let mut tab = None;
-        if self.closing == Closing::No && self.settings.is_none() {
+        let mut rename = None;
+        let mut tab_menu = |ui: &mut egui::Ui, i: usize| {
+            if ui.button("Rename…").clicked() {
+                rename = Some(i);
+                ui.close();
+            }
+        };
+        if self.closing == Closing::No && self.settings.is_none() && self.renaming.is_none() {
             tab = tabs::keys(&ctx, titles.len(), shown);
         }
         let header = frame::header_frame(ui.style(), &style, radius);
@@ -1200,6 +1263,7 @@ impl App {
                         let strip = TabStrip::new(&titles, shown, &style)
                             .span(span)
                             .new_hint("New Install (Ctrl+Shift+T)")
+                            .tab_menu(&mut tab_menu)
                             .show(ui);
                         tab = tab.or(strip);
                     },
@@ -1207,6 +1271,7 @@ impl App {
                 );
         });
         actions.extend(tab.map(Do::Tab));
+        actions.extend(rename.map(Do::Rename));
         actions.append(&mut output);
 
         // The status bar holds both bottom corners.

@@ -454,3 +454,20 @@ fn fake_gog_install(name: &str) -> (Install, PathBuf) {
     };
     (install, local.join("Plugins.txt"))
 }
+
+/// A tab is renamed from its right-click menu's dialog, and an empty name
+/// leaves it as it was.
+#[test]
+fn a_tab_is_renamed() {
+    let ctx = egui::Context::default();
+    let mut app = App::with_context(&ctx, Config::with(Install::named("Steam")));
+    settle(&mut app, &ctx);
+    app.act(&ctx, Do::Rename(0));
+    assert_eq!(app.renaming, Some((0, "Steam".to_string())));
+    app.act(&ctx, Do::RenameTo("  GOG ".into()));
+    assert_eq!(app.config.install().name, "GOG");
+    assert!(app.renaming.is_none());
+    app.act(&ctx, Do::Rename(0));
+    app.act(&ctx, Do::RenameTo("   ".into()));
+    assert_eq!(app.config.install().name, "GOG");
+}
