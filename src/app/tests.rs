@@ -575,10 +575,10 @@ fn armours_are_picked_from_a_plugin() {
 
     frame(&mut app, &ctx);
     click_text(&mut app, &ctx, "From a Plugin…");
-    until(&mut app, "Fixture.esp  (1)");
-    click_text(&mut app, &ctx, "Fixture.esp  (1)");
+    until(&mut app, "Fixture.esp  (2)");
+    click_text(&mut app, &ctx, "Fixture.esp  (2)");
     let screen = until(&mut app, "Fixture Cuirass   Body");
-    assert!(screen.contains("1 of 1 in Fixture.esp"), "{screen}");
+    assert!(screen.contains("2 of 2 in Fixture.esp") && screen.contains("Fixture Cuirass Alt   Body"), "{screen}");
 
     click_text(&mut app, &ctx, "Fixture Cuirass   Body");
     assert_eq!(app.preview.items(), ["meshes/fixture/quad.nif"]);
@@ -591,9 +591,14 @@ fn armours_are_picked_from_a_plugin() {
     }
     assert!(app.preview.is_drawn(), "the armour's model was drawn");
 
-    // Clicking it again takes it away; Add All Shown puts it back.
+    // The variant is a different item though it is the same model: it adds beside the first.
+    click_text(&mut app, &ctx, "Fixture Cuirass Alt   Body");
+    assert_eq!(app.preview.items(), ["meshes/fixture/quad.nif", "meshes/fixture/quad.nif"]);
+    // Clicking one again takes it away; Add All Shown puts both back.
     click_text(&mut app, &ctx, "Fixture Cuirass   Body");
+    assert_eq!(app.preview.items().len(), 1);
+    click_text(&mut app, &ctx, "Fixture Cuirass Alt   Body");
     assert!(app.preview.items().is_empty());
     click_text(&mut app, &ctx, "Add All Shown");
-    assert_eq!(app.preview.items(), ["meshes/fixture/quad.nif"]);
+    assert_eq!(app.preview.items().len(), 2);
 }

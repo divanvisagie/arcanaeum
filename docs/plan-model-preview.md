@@ -283,6 +283,54 @@ Two things the preview drew happily that the game would not, found by use:
 
 Order the models are added in changes nothing (byte-identical pictures), so the "load the body first" idea is not it.
 
+## Phase 7 results (2026-11-01): posing and texture swaps
+
+Both are the "draw what the game would draw" work that phase 6 found was missing.
+
+**Posing on the skeleton.** `nif::Mesh` keeps a `Skin` (bones, bind transforms from `NiSkinData`, per-vertex
+weights and bone indices from the vertex stream) and `Mesh::pose(&Skeleton)` moves each vertex by the weighted
+average of `bone's transform in the skeleton * bind transform`. `render::load_skeleton` reads the game's
+`skeleton_female.nif`; `Model::pose` poses a model and reports what moved. Default on in `skyplug preview`
+(`--no-pose` to compare) and Arcanaeum (a **Pose** checkbox; the report says how many meshes moved).
+
+Settled with data before writing it, in a prototype against real files:
+- The formula is right: for the Druid, Qwib and vanilla files, posing on a file's own bones reproduces the
+  stored vertices to 0.0000. (This also showed the shape transforms applied earlier are a special case.)
+- That test can't tell the two readings of the per-vertex bone index apart (any bone gives the same answer at
+  a model's own bind pose). `NiSkinData` also stores per-bone (vertex, weight) lists, independent of the
+  vertex stream: reading the index as **global** into the skin's bone list matches them for 48,312 of 48,317
+  vertices (100%) in shapes with non-trivial partition bone lists, the partition-local reading for 21.7%.
+- `NiSkinData` has the per-bone weight lists (6 bytes each) as well as the transforms.
+
+On the GOG install, worn human models: 1,802 skinned shapes; posed on their own bones, 95% reproduce what is
+stored (the rest are effects such as the monk robe's flashes and animated hand attachments); posed on the
+game's skeleton, 610 move. The common moves are 3.8 units (bundled hands: the skeleton holds the fingers
+differently than the files do) and 4.2 (the Northgirl pieces, whose bones are 2.54 forward and 3.29 down, as
+found in phase 6). Visible effect: the Northgirl trousers and strap sit on the installed body (no body
+poking through at the back) and the Druid pieces, whose skeleton matches, do not move.
+
+Not claimed: that this is exactly what the game draws, which depends on animation; it is the skeleton's rest
+pose (fingers included). Creatures hang on their own skeletons and are not posed (the female skeleton is for
+humanoids).
+
+**Texture swaps.** An armature's `MO3S` (female) / `MO2S` (male) list *(shape name, texture-set record, 3D
+index)*; `ArmourCatalog` now reads `TXST` records too and gives each `Armour` its swaps per model
+(`alt_textures`, paths by NIF slot with TXST's `TX00..TX07` mapped to them: diffuse, normal, environment
+mask, glow, height, environment, multilayer, backlight). `armour::apply_alternate_textures` puts them on a
+parsed model, matching shapes by name (the 3D index is ignored). In Arcanaeum an item is now a path plus its
+swaps, so the Tartan armour and the plain one are different items though they share a mesh (chips say "alt
+textures"). On the GOG install 343 armours swap textures, 1,335 swapped-in textures, 98.5% resolve; the 20 that
+don't are Ulfric's clothes' known missing files. Verified by drawing the Toughened Traveler base and Tartan/Dark
+variants (plain brown with grey gaiters against a dark plaid coat with laced black boots).
+
+Tests: nif (a hand-built skinned model checked at known weights: all A, all B, half and half, own bones,
+missing bones, unskinned shapes), armour (swap reading, applying, damaged swap lists), Arcanaeum worker and
+window (the fixture plugin gained a variant armour with a blue texture set; the base draws red and the
+variant blue; both are separate picker rows), plus `real_install_posing` and the swap check in
+`real_install_armours`.
+
+Left: animation (idle pose), male characters and other races, normal-map lighting.
+
 ## Where it lives
 
 Two pieces, split the way ADR-0005 splits the game's files from the window:

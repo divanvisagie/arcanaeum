@@ -12,10 +12,11 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, SystemTime};
 
-use skyplug_core::armour::ArmourCatalog;
+use skyplug_core::armour::{self, AltTexture, ArmourCatalog};
 use skyplug_core::assets::{AssetResolver, Source};
 use skyplug_core::dds::Rgba;
-use skyplug_core::render::{self, Camera, Model, Options, TextureResult, TextureStatus};
+use skyplug_core::nif::Skeleton;
+use skyplug_core::render::{self, Camera, Model, Options, PoseReport, TextureResult, TextureStatus};
 use skyplug_core::GamePaths;
 
 use crate::table::Colours;
@@ -28,12 +29,36 @@ const POLL: Duration = Duration::from_millis(1000);
 /// Textures are decoded at a mip level of about this many pixels a side.
 const MAX_TEXTURE_SIDE: usize = 1024;
 
+/// One model to draw: a game path or a file on disk, and any texture swaps an armour that wears
+/// it applies (an armour's Tartan variant is the same model with another texture set).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Item {
+    pub path: String,
+    pub alts: Vec<AltTexture>,
+}
+
+impl From<&str> for Item {
+    fn from(path: &str) -> Self {
+        Item { path: path.to_string(), alts: Vec::new() }
+    }
+}
+
+impl Item {
+    /// The file name, with a mark if it has texture swaps.
+    fn label(&self) -> String {
+        let name = self.path.rsplit(['/', '\\']).next().unwrap_or(&self.path);
+        if self.alts.is_empty() { name.to_string() } else { format!("{name} (alt textures)") }
+    }
+}
+
 /// What to draw: models, as game paths or files on disk, and whether to put
 /// the installed body under them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Request {
-    pub items: Vec<String>,
+    pub items: Vec<Item>,
     pub body: bool,
+    /// Pose skinned models on the game's skeleton, as the game does; off draws them as stored.
+    pub pose: bool,
 }
 
 /// How to draw it.
@@ -64,8 +89,8 @@ pub struct ArmourRow {
     pub label: String,
     pub editor_id: String,
     pub slots: String,
-    /// Game paths of the models it's worn as.
-    pub models: Vec<String>,
+    /// The models it's worn as, with their texture swaps.
+    pub models: Vec<Item>,
     /// For an armour the plugin only changes: the plugin that adds it.
     pub changes: Option<String>,
     /// What the game won't draw of its models: a shape whose skin partition is on a slot the armature isn't worn on.
@@ -76,6 +101,8 @@ pub struct ArmourRow {
 #[derive(Debug, Clone)]
 pub struct Loaded {
     pub meshes: usize,
+    /// What posing on the skeleton did, or `None` if it was off or the install has no skeleton.
+    pub pose: Option<PoseReport>,
     pub textures: Vec<TextureStatus>,
     /// Problems worth showing: models that couldn't be read, and what the
     /// model reader and the texture loader complained about.
@@ -113,9 +140,18 @@ struct Current {
 
 struct Worker {
     poll: Duration,
-    resolver: Option<(PathBuf, AssetResolver)>,
+    /// The game's files, and its female skeleton (read once with them).
+    resolver: Option<(PathBuf, AssetResolver, Option<Skeleton>)>,
     current: Option<Current>,
     catalog: Option<ArmourCatalog>,
+}
+
+/// A model from the game's files with an armour's texture swaps applied, textures resolved.
+fn read_asset(resolver: &AssetResolver, path: &str, alts: &[AltTexture]) -> Result<Option<Model>, String> {
+    let Some(bytes) = resolver.read_asset(path).map_err(|e| format!("{e:#}"))? else { return Ok(None) };
+    let mut nif = skyplug_core::nif::parse(&bytes).map_err(|e| format!("{e:#}"))?;
+    armour::apply_alternate_textures(&mut nif, alts);
+    Ok(Some(Model::load(resolver, &nif, MAX_TEXTURE_SIDE)))
 }
 
 /// A model file on disk, with its textures resolved through the game's files.
@@ -130,15 +166,17 @@ fn modified(path: &Path) -> Option<SystemTime> {
 }
 
 impl Worker {
-    fn resolver(&mut self, paths: &GamePaths, fresh: bool) -> Result<&AssetResolver, String> {
-        let stale = fresh || self.resolver.as_ref().is_none_or(|(data, _)| data != &paths.data_dir);
+    fn resolver(&mut self, paths: &GamePaths, fresh: bool) -> Result<(&AssetResolver, Option<&Skeleton>), String> {
+        let stale = fresh || self.resolver.as_ref().is_none_or(|(data, _, _)| data != &paths.data_dir);
         if stale {
             let resolver = AssetResolver::for_game(paths).map_err(|e| format!("{e:#}"))?;
-            self.resolver = Some((paths.data_dir.clone(), resolver));
-        } else if let Some((_, r)) = &self.resolver {
+            let skeleton = render::load_skeleton(&resolver);
+            self.resolver = Some((paths.data_dir.clone(), resolver, skeleton));
+        } else if let Some((_, r, _)) = &self.resolver {
             r.clear_cache();
         }
-        Ok(&self.resolver.as_ref().expect("set above").1)
+        let (_, resolver, skeleton) = self.resolver.as_ref().expect("set above");
+        Ok((resolver, skeleton.as_ref()))
     }
 
     fn print(resolver: &AssetResolver, watch: &Watch) -> Print {
@@ -155,23 +193,23 @@ impl Worker {
     }
 
     fn load(&mut self, id: u64, paths: &GamePaths, request: &Request, fresh: bool) -> Result<Loaded, String> {
-        let resolver = self.resolver(paths, fresh)?;
+        let (resolver, skeleton) = self.resolver(paths, fresh)?;
         let mut model = Model::default();
         let mut problems = Vec::new();
         let mut watched = Vec::new();
         for item in &request.items {
-            let on_disk = Path::new(item).is_file();
+            let on_disk = Path::new(&item.path).is_file();
             let loaded = if on_disk {
-                read_file(resolver, Path::new(item)).map(Some)
+                read_file(resolver, Path::new(&item.path)).map(Some)
             } else {
-                Model::from_asset(resolver, item, MAX_TEXTURE_SIDE).map_err(|e| format!("{e:#}"))
+                read_asset(resolver, &item.path, &item.alts)
             };
             match loaded {
                 Ok(Some(m)) => model.merge(m),
-                Ok(None) => problems.push(format!("{item}: the game has no such file")),
-                Err(e) => problems.push(format!("{item}: {e}")),
+                Ok(None) => problems.push(format!("{}: the game has no such file", item.path)),
+                Err(e) => problems.push(format!("{}: {e}", item.path)),
             }
-            watched.push(if on_disk { Watch::File(PathBuf::from(item)) } else { Watch::Asset(item.clone()) });
+            watched.push(if on_disk { Watch::File(PathBuf::from(&item.path)) } else { Watch::Asset(item.path.clone()) });
         }
         if request.body {
             for asset in render::FEMALE_BODY {
@@ -184,6 +222,7 @@ impl Worker {
         if model.mesh_count() == 0 {
             return Err(if problems.is_empty() { "nothing to draw: no meshes it can read".into() } else { problems.join("\n") });
         }
+        let pose = if request.pose { skeleton.map(|sk| model.pose(sk)) } else { None };
         for t in &model.textures {
             let w = Watch::Asset(t.path.clone());
             if !watched.contains(&w) {
@@ -199,6 +238,7 @@ impl Worker {
             .collect();
         let loaded = Loaded {
             meshes: model.mesh_count(),
+            pose,
             textures: model.textures.clone(),
             warnings: problems.into_iter().chain(model.warnings.iter().cloned()).collect(),
         };
@@ -216,7 +256,7 @@ impl Worker {
 
     fn armours(&self, plugin: &str) -> Result<Vec<ArmourRow>, String> {
         let catalog = self.catalog.as_ref().ok_or("the armours haven't been read yet")?;
-        let resolver = self.resolver.as_ref().map(|(_, r)| r);
+        let resolver = self.resolver.as_ref().map(|(_, r, _)| r);
         let armours = catalog.armours_in(plugin, resolver).map_err(|e| format!("{e:#}"))?;
         Ok(armours
             .into_iter()
@@ -226,14 +266,14 @@ impl Worker {
                 changes: a.is_override().then(|| a.defined_in.clone()),
                 problems: resolver.map(|r| a.visibility_problems(r)).unwrap_or_default(),
                 editor_id: a.editor_id,
-                models: a.models,
+                models: a.models.into_iter().zip(a.alt_textures).map(|(path, alts)| Item { path, alts }).collect(),
             })
             .collect())
     }
 
     /// The id of the loaded model if a file it uses has changed since last looked.
     fn changed(&mut self) -> Option<u64> {
-        let (_, resolver) = self.resolver.as_ref()?;
+        let (_, resolver, _) = self.resolver.as_ref()?;
         let current = self.current.as_mut()?;
         resolver.clear_cache();
         let mut any = false;
@@ -327,8 +367,10 @@ fn run(jobs: Receiver<Job>, replies: Sender<Reply>, ctx: egui::Context, poll: Du
 pub struct Preview {
     jobs: Sender<Job>,
     replies: Receiver<Reply>,
-    items: Vec<String>,
+    items: Vec<Item>,
     body: bool,
+    /// Pose skinned models on the game's skeleton (on unless turned off).
+    pose: bool,
     /// The text being typed to add a model.
     input: String,
     /// Which load the worker's answers belong to.
@@ -385,6 +427,7 @@ impl Preview {
             replies,
             items: Vec::new(),
             body: false,
+            pose: true,
             input: String::new(),
             id: 0,
             loading: false,
@@ -409,8 +452,8 @@ impl Preview {
 
     /// The models being shown.
     #[cfg(test)]
-    pub fn items(&self) -> &[String] {
-        &self.items
+    pub fn items(&self) -> Vec<&str> {
+        self.items.iter().map(|i| i.path.as_str()).collect()
     }
 
     /// Where the camera is.
@@ -424,6 +467,7 @@ impl Preview {
         self.items.clear();
         self.input.clear();
         self.body = false;
+        self.pose = true;
         self.id += 1;
         self.loading = false;
         self.loaded = None;
@@ -436,7 +480,7 @@ impl Preview {
 
     /// Set what to show, for screenshot mode.
     pub fn show(&mut self, items: Vec<String>, body: bool, paths: &GamePaths) {
-        self.items = items;
+        self.items = items.iter().map(|i| Item::from(i.as_str())).collect();
         self.body = body;
         self.load(paths, false);
     }
@@ -444,8 +488,8 @@ impl Preview {
     /// Add a model (a game path or a file) and load.
     pub fn add(&mut self, item: &str, paths: &GamePaths) {
         let item = item.trim();
-        if !item.is_empty() && !self.items.iter().any(|i| i == item) {
-            self.items.push(item.to_string());
+        if !item.is_empty() && !self.items.iter().any(|i| i.path == item && i.alts.is_empty()) {
+            self.items.push(Item::from(item));
             self.load(paths, false);
         }
     }
@@ -484,7 +528,7 @@ impl Preview {
     }
 
     /// Add models (game paths) not already there, and load once.
-    fn add_all(&mut self, models: &[String], paths: &GamePaths) {
+    fn add_all(&mut self, models: &[Item], paths: &GamePaths) {
         let before = self.items.len();
         for m in models {
             if !self.items.contains(m) {
@@ -497,7 +541,7 @@ impl Preview {
     }
 
     /// Take away models that are there.
-    fn remove_all(&mut self, models: &[String], paths: &GamePaths) {
+    fn remove_all(&mut self, models: &[Item], paths: &GamePaths) {
         let before = self.items.len();
         self.items.retain(|i| !models.contains(i));
         if self.items.len() != before {
@@ -519,7 +563,7 @@ impl Preview {
         let job = Job::Load {
             id: self.id,
             paths: Box::new(paths.clone()),
-            request: Request { items: self.items.clone(), body: self.body },
+            request: Request { items: self.items.clone(), body: self.body, pose: self.pose },
             fresh,
         };
         if self.jobs.send(job).is_err() {
@@ -565,7 +609,10 @@ impl Preview {
     /// The textures and problems as plain text, for Copy Report.
     pub fn report(&self) -> Option<String> {
         let loaded = self.loaded.as_ref()?.as_ref().ok()?;
-        let mut out = format!("Model preview\n{}\n", self.items.join("\n"));
+        let mut out = format!("Model preview\n{}\n", self.items.iter().map(Item::label).collect::<Vec<_>>().join("\n"));
+        if let Some(p) = loaded.pose.filter(|p| p.posed > 0) {
+            out.push_str(&format!("posed on the game's skeleton: {} of {} skinned meshes move, by up to {:.1} units\n", p.moved, p.posed, p.largest));
+        }
         for t in &loaded.textures {
             let line = match &t.result {
                 TextureResult::Found { source, hides } if hides.is_empty() => format!("from {source}"),
@@ -601,7 +648,7 @@ impl Preview {
             let edit = ui.add(
                 egui::TextEdit::singleline(&mut self.input)
                     .hint_text("meshes/armor/iron/f/cuirass_1.nif")
-                    .desired_width((ui.available_width() - 390.0).max(120.0)),
+                    .desired_width((ui.available_width() - 450.0).max(120.0)),
             );
             let entered = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             if ui.button("Add").clicked() || entered {
@@ -623,12 +670,15 @@ impl Preview {
                 self.open_picker(paths, false);
             }
             changed_body = ui.checkbox(&mut self.body, "Body").on_hover_text("Draw the installed female body under the model, for scale").changed();
+            changed_body |= ui
+                .checkbox(&mut self.pose, "Pose")
+                .on_hover_text("Pose skinned models on the game's skeleton, as the game does. Off draws them as stored in the file.")
+                .changed();
         });
         if !self.items.is_empty() {
             ui.horizontal_wrapped(|ui| {
                 for (i, item) in self.items.iter().enumerate() {
-                    let name = item.rsplit(['/', '\\']).next().unwrap_or(item);
-                    ui.label(name).on_hover_text(item);
+                    ui.label(item.label()).on_hover_text(&item.path);
                     if ui.small_button("×").on_hover_text("Remove").clicked() {
                         remove = Some(i);
                     }
@@ -668,8 +718,8 @@ impl Preview {
         let Some(mut picker) = self.picker.take() else { return };
         let mut open = true;
         let mut choose = None;
-        let mut add: Vec<String> = Vec::new();
-        let mut remove: Vec<String> = Vec::new();
+        let mut add: Vec<Item> = Vec::new();
+        let mut remove: Vec<Item> = Vec::new();
         egui::Window::new("Add Armour from a Plugin")
             .id(egui::Id::new("armour-picker"))
             .default_size([760.0, 520.0])
@@ -731,7 +781,7 @@ impl Preview {
                             .collect();
                         ui.horizontal(|ui| {
                             ui.weak(format!("{} of {} in {plugin}", shown.len(), rows.len()));
-                            let all: Vec<String> = shown.iter().flat_map(|r| r.models.iter().cloned()).collect();
+                            let all: Vec<Item> = shown.iter().flat_map(|r| r.models.iter().cloned()).collect();
                             if ui.button("Add All Shown").on_hover_text("Add every armour listed, for a whole outfit").clicked() {
                                 add = all;
                             }
@@ -754,7 +804,11 @@ impl Preview {
                                     text.push_str("   SLOT MISMATCH");
                                 }
                                 let label = if broken { egui::RichText::new(text).color(colours.missing) } else { egui::RichText::new(text) };
-                                let mut hover = format!("{}\n{}", r.editor_id, r.models.join("\n"));
+                                let paths_text: Vec<&str> = r.models.iter().map(|m| m.path.as_str()).collect();
+                                let mut hover = format!("{}\n{}", r.editor_id, paths_text.join("\n"));
+                                if r.models.iter().any(|m| !m.alts.is_empty()) {
+                                    hover.push_str("\n(wears alternate textures)");
+                                }
                                 if broken {
                                     hover.push_str(&format!("\n\n{}", r.problems.join("\n")));
                                 }
@@ -800,6 +854,15 @@ impl Preview {
                 }
             };
             ui.weak(format!("{} meshes", loaded.meshes));
+            match loaded.pose {
+                Some(p) if p.moved > 0 => {
+                    ui.weak(format!("Posed on the game's skeleton: {} of {} skinned meshes move, by up to {:.1} units", p.moved, p.posed, p.largest));
+                }
+                Some(p) if p.posed > 0 => {
+                    ui.weak(format!("Posed on the game's skeleton: all {} skinned meshes already fit it", p.posed));
+                }
+                _ => {}
+            }
             let mut last = "";
             for t in &loaded.textures {
                 if t.mesh != last {
@@ -916,6 +979,8 @@ pub(crate) mod tests {
     const QUAD: &[u8] = include_bytes!("../tests/fixtures/quad.nif");
     const RED: &[u8] = include_bytes!("../tests/fixtures/red.dds");
     const PLUGIN: &[u8] = include_bytes!("../tests/fixtures/Fixture.esp");
+    const BLUE: &[u8] = include_bytes!("../tests/fixtures/blue.dds");
+    const SKELETON: &[u8] = include_bytes!("../tests/fixtures/skeleton_female.nif");
 
     /// A game folder in a temp dir whose Data holds the fixture quad and its red texture.
     pub(crate) fn fixture_install(name: &str) -> GamePaths {
@@ -927,6 +992,11 @@ pub(crate) mod tests {
         std::fs::create_dir_all(root.join("docs/Saves")).unwrap();
         std::fs::write(data.join("meshes/fixture/quad.nif"), QUAD).unwrap();
         std::fs::write(data.join("textures/fixture/red.dds"), RED).unwrap();
+        std::fs::write(data.join("textures/fixture/blue.dds"), BLUE).unwrap();
+        // The game's female skeleton, as a pair of bones.
+        let skeleton = data.join("meshes/actors/character/character assets female");
+        std::fs::create_dir_all(&skeleton).unwrap();
+        std::fs::write(skeleton.join("skeleton_female.nif"), SKELETON).unwrap();
         // A plugin with one armour, worn as the fixture quad, and enabled.
         std::fs::write(data.join("Fixture.esp"), PLUGIN).unwrap();
         std::fs::write(root.join("Plugins.txt"), "*Fixture.esp\n").unwrap();
@@ -949,7 +1019,7 @@ pub(crate) mod tests {
     }
 
     fn load(jobs: &Sender<Job>, paths: &GamePaths, id: u64, items: &[&str]) {
-        let request = Request { items: items.iter().map(|s| s.to_string()).collect(), body: false };
+        let request = Request { items: items.iter().map(|s| Item::from(*s)).collect(), body: false, pose: true };
         jobs.send(Job::Load { id, paths: Box::new(paths.clone()), request, fresh: false }).unwrap();
     }
 
@@ -968,6 +1038,8 @@ pub(crate) mod tests {
         load(&jobs, &paths, 1, &["meshes/fixture/quad.nif"]);
         let Reply::Loaded { id: 1, result: Ok(loaded) } = next(&replies) else { panic!("expected a loaded model") };
         assert_eq!(loaded.meshes, 1);
+        // The skeleton was found and the (unskinned) quad needed no posing.
+        assert_eq!(loaded.pose, Some(PoseReport::default()));
         let red = loaded.textures.iter().find(|t| t.path.ends_with("red.dds")).unwrap();
         assert_eq!(red.result, TextureResult::Found { source: "loose: textures/fixture/red.dds".into(), hides: vec![] });
         let gone = loaded.textures.iter().find(|t| t.path.ends_with("gone_n.dds")).unwrap();
@@ -979,6 +1051,41 @@ pub(crate) mod tests {
         let centre = &image.pixels[(32 * 64 + 32) * 4..][..4];
         assert!(centre[0] > 100 && centre[1] < 40 && centre[3] == 255, "the quad is red in the middle: {centre:?}");
         assert_eq!(image.pixels[3], 0, "the corner is transparent background");
+    }
+
+    #[test]
+    fn a_variant_draws_with_its_own_textures() {
+        let paths = fixture_install("preview_variant");
+        let (jobs, replies) = start(10_000);
+        jobs.send(Job::Plugins { paths: Box::new(paths.clone()), fresh: false }).unwrap();
+        let _ = next(&replies);
+        jobs.send(Job::Armours { plugin: "Fixture.esp".into() }).unwrap();
+        let Reply::Armours { result: Ok(rows), .. } = next(&replies) else { panic!() };
+        let centre = |item: Item, id: u64| {
+            let request = Request { items: vec![item], body: false, pose: false };
+            jobs.send(Job::Load { id, paths: Box::new(paths.clone()), request, fresh: false }).unwrap();
+            let Reply::Loaded { result: Ok(loaded), .. } = next(&replies) else { panic!() };
+            jobs.send(Job::Render { id, view: view(0.0) }).unwrap();
+            let Reply::Image { image, .. } = next(&replies) else { panic!() };
+            (image.pixels[(32 * 64 + 32) * 4..][..4].to_vec(), loaded)
+        };
+        let (base, _) = centre(rows[0].models[0].clone(), 1);
+        let (variant, loaded) = centre(rows[1].models[0].clone(), 2);
+        assert!(base[0] > 100 && base[2] < 40, "the base armour is red: {base:?}");
+        assert!(variant[2] > 100 && variant[0] < 40, "its variant is blue: {variant:?}");
+        // The report names the swapped-in texture, not the model's own.
+        let diffuse = loaded.textures.iter().find(|t| t.slot == 0).unwrap();
+        assert!(diffuse.path.ends_with("blue.dds"), "{}", diffuse.path);
+    }
+
+    #[test]
+    fn posing_can_be_turned_off() {
+        let paths = fixture_install("preview_pose_off");
+        let (jobs, replies) = start(10_000);
+        let request = Request { items: vec![Item::from("meshes/fixture/quad.nif")], body: false, pose: false };
+        jobs.send(Job::Load { id: 1, paths: Box::new(paths), request, fresh: false }).unwrap();
+        let Reply::Loaded { result: Ok(loaded), .. } = next(&replies) else { panic!() };
+        assert_eq!(loaded.pose, None);
     }
 
     #[test]
@@ -1066,23 +1173,31 @@ pub(crate) mod tests {
 
         jobs.send(Job::Plugins { paths: Box::new(paths.clone()), fresh: false }).unwrap();
         let Reply::Plugins { result: Ok((plugins, problems)) } = next(&replies) else { panic!() };
-        assert_eq!(plugins, [("Fixture.esp".to_string(), 1)]);
+        assert_eq!(plugins, [("Fixture.esp".to_string(), 2)]);
         assert!(problems.is_empty(), "{problems:?}");
 
         jobs.send(Job::Armours { plugin: "Fixture.esp".into() }).unwrap();
         let Reply::Armours { plugin, result: Ok(rows) } = next(&replies) else { panic!() };
         assert_eq!(plugin, "Fixture.esp");
+        assert_eq!(rows.len(), 2);
         assert_eq!(
-            rows,
-            [ArmourRow {
+            rows[0],
+            ArmourRow {
                 label: "Fixture Cuirass".into(),
                 editor_id: "FixtureCuirass".into(),
                 slots: "Body".into(),
-                models: vec!["meshes/fixture/quad.nif".into()],
+                models: vec![Item::from("meshes/fixture/quad.nif")],
                 changes: None,
                 problems: vec![]
-            }]
+            }
         );
+        // The variant wears the same model with a texture swap, so it is a different item.
+        assert_eq!(rows[1].label, "Fixture Cuirass Alt");
+        assert_eq!(rows[1].models[0].path, "meshes/fixture/quad.nif");
+        assert_eq!(rows[1].models[0].alts.len(), 1);
+        assert_eq!(rows[1].models[0].alts[0].shape, "Quad");
+        assert_eq!(rows[1].models[0].alts[0].textures[0], "textures/fixture/blue.dds");
+        assert_ne!(rows[0].models[0], rows[1].models[0]);
         jobs.send(Job::Armours { plugin: "Nope.esp".into() }).unwrap();
         let Reply::Armours { result: Err(e), .. } = next(&replies) else { panic!() };
         assert!(e.contains("isn't in the load order"), "{e}");
@@ -1091,7 +1206,7 @@ pub(crate) mod tests {
     #[test]
     fn coalescing_keeps_the_newest_render_and_everything_else_in_order() {
         let paths = fixture_install("preview_coalesce_unit");
-        let req = || Request { items: vec![], body: false };
+        let req = || Request { items: vec![], body: false, pose: true };
         let load = |id| Job::Load { id, paths: Box::new(paths.clone()), request: req(), fresh: false };
         let render = |id, az| Job::Render { id, view: view(az) };
         let armours = || Job::Armours { plugin: "A.esp".into() };

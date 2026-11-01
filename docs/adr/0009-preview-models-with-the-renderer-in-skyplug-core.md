@@ -45,6 +45,12 @@ change an armature as the one that counts, and names the models the load order r
 worker keeps that catalog and answers the picker's two questions (which plugins have armours, and
 what are one plugin's). Names of the localized base plugins come from their string tables.
 
+The preview draws what the game would, not what the file stores. Skinned models are posed on the game's
+female skeleton (a model made on a shifted skeleton, as some mods' are, moves as it does in game), and an
+armour's texture swaps (its armature's alternate textures) travel with its model, so a variant is a
+different item from the armour that shares its mesh. The slot rule above and the pose are the two things
+the first versions drew happily that the game would not.
+
 ## Consequences
 
 - A recoloured texture shows up as it is saved, and "is my loose file being used?" is answered by the
@@ -55,7 +61,8 @@ what are one plugin's). Names of the localized base plugins come from their stri
   cheaper picture while dragging and a smoother one when still. If that proves too slow for big
   scenes, a GPU path can replace the drawing without changing the loading.
 - It is a preview, not the game's renderer: no normal, specular or glow maps, no skin or hair tint, no
-  real skinning, no face meshes. It says so rather than pretending.
+  animation (the pose is the skeleton's rest pose, so fingers are as it holds them), no face meshes. It says
+  so rather than pretending.
 - Arcanaeum's build depends on more of skyplug-core, which grows with the formats it reads; models it
   can't read show as errors and warnings, not crashes.
 - The picker shows what the load order really wears, so a refit (UNP Vanilla Outfits) shows its models
