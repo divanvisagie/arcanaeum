@@ -15,6 +15,7 @@ use crate::analysis::{self, Analysis, Kind, Pending, PluginFilter, Row, Setup};
 use crate::config::{Config, Install};
 use crate::game;
 use crate::loader::{Characters, Command, Loader, Update};
+use crate::preview::Preview;
 use crate::table::{plugin_table, Colours, SkinColours};
 
 /// Stock egui until the user picks a skin.
@@ -32,6 +33,8 @@ const NOTICE_FOR: f64 = 3.0;
 #[derive(Debug, Clone, PartialEq)]
 enum Selection {
     LoadOrder,
+    /// The model preview (ADR-0009).
+    Preview,
     Save(PathBuf),
 }
 
@@ -153,6 +156,8 @@ pub struct App {
     forced_skin: Option<String>,
     skin_colours: SkinColours,
     loader: Loader,
+    /// The model preview's worker and what it shows (ADR-0009).
+    preview: Preview,
     /// The game's files once looked for: its paths, or why it wasn't found.
     game: Option<Result<GamePaths, String>>,
     /// Data, Plugins.txt and Skyrim.ccc once read.
@@ -202,6 +207,7 @@ impl App {
             forced_skin: std::env::var("ARCANAEUM_SKIN").ok(),
             skin_colours: SkinColours::default(),
             loader: Loader::start(ctx),
+            preview: Preview::start(ctx),
             game: None,
             setup: None,
             folder: None,
@@ -300,6 +306,20 @@ impl App {
                     );
                     if let Ok(paths) = &game {
                         self.loader.send(Command::ReadSetup(paths.clone()));
+                        // Screenshot mode: `ARCANAEUM_PREVIEW` is the models to show, `;` between them.
+                        if self.screenshot.is_some() {
+                            if let Some(models) = std::env::var_os("ARCANAEUM_PREVIEW") {
+                                let items = models.to_string_lossy().split(';').map(str::to_string).collect();
+                                self.selection = Selection::Preview;
+                                self.preview.show(items, std::env::var_os("ARCANAEUM_PREVIEW_BODY").is_some(), paths);
+                            }
+                            // `ARCANAEUM_PICKER`: a plugin whose armours the picker shows.
+                            if let Some(plugin) = std::env::var_os("ARCANAEUM_PICKER") {
+                                self.selection = Selection::Preview;
+                                let filter = std::env::var("ARCANAEUM_PICKER_FILTER").unwrap_or_default();
+                                self.preview.show_picker(&plugin.to_string_lossy(), &filter, paths);
+                            }
+                        }
                     }
                     self.loader.send(Command::ScanFolder(folder.clone()));
                     self.folder = Some(folder);
@@ -487,6 +507,7 @@ impl App {
             Selection::LoadOrder => self
                 .order_rows()
                 .map(|rows| analysis::report("Load order", &rows)),
+            Selection::Preview => self.preview.report(),
             Selection::Save(_) => {
                 let save = self.open_save()?;
                 let h = &save.save.header;
@@ -528,6 +549,7 @@ impl App {
         self.selection = Selection::LoadOrder;
         self.analysis = None;
         self.save_image = None;
+        self.preview.reset();
         self.find_game();
     }
 
@@ -654,6 +676,9 @@ impl App {
                 if let Selection::Save(path) = self.selection.clone() {
                     self.loader.send(Command::OpenSave(path));
                 }
+                if let Some(paths) = self.paths().cloned() {
+                    self.preview.reload(&paths);
+                }
             }
             Do::Select(selection) => {
                 if let Selection::Save(path) = &selection {
@@ -742,6 +767,15 @@ impl App {
         if row.clicked() && !selected {
             actions.push(Do::Select(Selection::LoadOrder));
         }
+        let selected = self.selection == Selection::Preview;
+        let row = ui.add(
+            egui::Button::selectable(selected, "Model Preview")
+                .min_size(egui::vec2(width, 0.0))
+                .truncate(),
+        );
+        if row.clicked() && !selected {
+            actions.push(Do::Select(Selection::Preview));
+        }
 
         ui.add_space(10.0);
         ui.heading("Characters");
@@ -762,7 +796,7 @@ impl App {
         }
         let current = match &self.selection {
             Selection::Save(path) => Some(path),
-            Selection::LoadOrder => None,
+            Selection::LoadOrder | Selection::Preview => None,
         };
         egui::ScrollArea::vertical()
             .auto_shrink(false)
@@ -798,6 +832,29 @@ impl App {
 
     fn colours(&self, ui: &egui::Ui) -> Colours {
         self.skin_colours.resolve(ui.visuals())
+    }
+
+    fn preview_view(&mut self, ui: &mut egui::Ui) {
+        match self.game.clone() {
+            Some(Ok(paths)) => {
+                let colours = self.colours(ui);
+                self.preview.ui(ui, &paths, &colours);
+            }
+            Some(Err(e)) => {
+                ui.add_space(6.0);
+                ui.heading("Skyrim Special Edition wasn't found");
+                ui.label(e);
+                ui.weak("The preview reads models and textures from the game's files; set its folder in Settings.");
+            }
+            None => {
+                ui.centered_and_justified(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.weak("Looking for Skyrim Special Edition…");
+                    });
+                });
+            }
+        }
     }
 
     fn load_order_view(&mut self, ui: &mut egui::Ui, actions: &mut Vec<Do>) {
@@ -1011,7 +1068,7 @@ impl App {
             self.notice = None;
         }
         ui.horizontal(|ui| {
-            if self.loader.busy() {
+            if self.loader.busy() || self.preview.busy() {
                 ui.spinner();
             }
             if let Some(error) = self.error.clone() {
@@ -1182,7 +1239,13 @@ impl App {
     /// Screenshot mode: once the first save is shown, save the window and quit.
     fn take_screenshot(&mut self, ctx: &egui::Context) {
         let ready = self.open_save().is_some()
-            || (!self.loader.busy() && self.folder.is_some() && self.characters.is_empty());
+            || (self.selection == Selection::Preview
+                && (self.preview.is_drawn() || self.preview.picker_ready())
+                && (std::env::var_os("ARCANAEUM_PREVIEW").is_none() || self.preview.is_drawn()))
+            || (self.selection != Selection::Preview
+                && !self.loader.busy()
+                && self.folder.is_some()
+                && self.characters.is_empty());
         let Some((path, requested, ready_at)) = &mut self.screenshot else {
             return;
         };
@@ -1292,6 +1355,7 @@ impl App {
 
         egui::CentralPanel::default().show(ui, |ui| match self.selection {
             Selection::LoadOrder => self.load_order_view(ui, &mut actions),
+            Selection::Preview => self.preview_view(ui),
             Selection::Save(_) => self.save_view(ui, &mut actions),
         });
 

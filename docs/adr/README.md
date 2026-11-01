@@ -50,6 +50,7 @@ mechanics of adding one.
 | [0006](0006-switch-plugins-then-apply.md) | Switch plugins in memory, write Plugins.txt on Apply | Proposed |
 | [0007](0007-find-a-game-outside-steam-through-settings.md) | Find a game outside Steam through a game folder and Wine prefix set in Settings | Accepted |
 | [0008](0008-a-tab-for-each-copy-of-the-game.md) | A tab for each copy of the game | Accepted |
+| [0009](0009-preview-models-with-the-renderer-in-skyplug-core.md) | Preview models with the renderer in skyplug-core, on a worker of their own | Proposed |
 
 ## Decision Relationship
 
@@ -64,6 +65,8 @@ flowchart TD
     A --> H
     B --> E
     C --> F
+    E --> I[0009: model preview, renderer in skyplug-core]
+    B --> I
 ```
 
 ## Revisit Triggers
@@ -74,4 +77,5 @@ flowchart TD
 - skyplug-core 0.2.0 is published: drop the `path` dependency → [ADR-0007](0007-find-a-game-outside-steam-through-settings.md).
 - A build other than Steam's or GOG's needs supporting → [ADR-0007](0007-find-a-game-outside-steam-through-settings.md).
 - Switched plugins blocking a tab switch gets in the way → [ADR-0008](0008-a-tab-for-each-copy-of-the-game.md).
+- Orbiting a big scene feels slow, or a model needs the game's own shading → [ADR-0009](0009-preview-models-with-the-renderer-in-skyplug-core.md).
 - Plugins need reordering, not just switching, or one backup proves too few → [ADR-0006](0006-switch-plugins-then-apply.md).

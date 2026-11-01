@@ -471,3 +471,129 @@ fn a_tab_is_renamed() {
     app.act(&ctx, Do::RenameTo("   ".into()));
     assert_eq!(app.config.install().name, "GOG");
 }
+
+/// The model preview: a model from the game's files is drawn and its textures
+/// are listed with where each came from, a drag turns it, and Copy Report
+/// has something to copy.
+#[test]
+fn the_model_preview_shows_a_model_its_textures_and_turns() {
+    let paths = crate::preview::tests::fixture_install("app_preview");
+    let ctx = egui::Context::default();
+    let mut app = App::with_context(&ctx, Config::with(Install::default()));
+    settle(&mut app, &ctx);
+    app.game = Some(Ok(paths.clone()));
+
+    click_text(&mut app, &ctx, "Model Preview");
+    let screen = frame(&mut app, &ctx);
+    assert!(screen.contains("Type a model's path"), "{screen}");
+
+    app.preview.add("meshes/fixture/quad.nif", &paths);
+    let mut screen = String::new();
+    for _ in 0..400 {
+        screen = frame(&mut app, &ctx);
+        if app.preview.is_drawn() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    assert!(app.preview.is_drawn(), "no picture was drawn:\n{screen}");
+    let screen = frame(&mut app, &ctx);
+    for text in ["Model Preview", "quad.nif", "Textures", "diffuse: red.dds", "loose: textures/fixture/red.dds", "normal: gone_n.dds  MISSING"] {
+        assert!(screen.contains(text), "{text:?} not on screen:\n{screen}");
+    }
+
+    // Copy Report copies the same facts.
+    let report = app.report().expect("a report");
+    assert!(report.contains("red.dds") && report.contains("MISSING") && report.contains("from loose: textures/fixture/red.dds"), "{report}");
+
+    // Dragging the picture turns the camera: right turns the model toward the right.
+    let output = frame_with(&mut app, &ctx, Vec::new());
+    let hint = text_rect(&output, "Drag to turn, scroll to zoom").expect("the hint");
+    let start = egui::pos2(hint.min.x + 150.0, hint.max.y + 200.0);
+    let before = app.preview.camera();
+    let button = |pressed| egui::Event::PointerButton { pos: start, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+    let _ = frame_with(&mut app, &ctx, vec![egui::Event::PointerMoved(start)]);
+    let _ = frame_with(&mut app, &ctx, vec![button(true)]);
+    let _ = frame_with(&mut app, &ctx, vec![egui::Event::PointerMoved(start + egui::vec2(40.0, 0.0))]);
+    let _ = frame_with(&mut app, &ctx, vec![egui::Event::PointerMoved(start + egui::vec2(80.0, 0.0))]);
+    let _ = frame_with(&mut app, &ctx, vec![button(false)]);
+    let after = app.preview.camera();
+    assert!(after.azimuth > before.azimuth + 20.0, "azimuth {} -> {}", before.azimuth, after.azimuth);
+
+    // A view button sets the azimuth; Reset restores the start.
+    click_text(&mut app, &ctx, "Back");
+    assert_eq!(app.preview.camera().azimuth, 180.0);
+    click_text(&mut app, &ctx, "Reset");
+    assert_eq!(app.preview.camera(), before);
+}
+
+/// A model that isn't there says so in the report, and the view doesn't give up.
+#[test]
+fn a_model_the_game_does_not_have_is_reported() {
+    let paths = crate::preview::tests::fixture_install("app_preview_missing");
+    let ctx = egui::Context::default();
+    let mut app = App::with_context(&ctx, Config::with(Install::default()));
+    settle(&mut app, &ctx);
+    app.game = Some(Ok(paths.clone()));
+    app.selection = Selection::Preview;
+    app.preview.add("meshes/nothing/here.nif", &paths);
+    let mut screen = String::new();
+    for _ in 0..200 {
+        screen = frame(&mut app, &ctx);
+        if screen.contains("no such file") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    assert!(screen.contains("the game has no such file"), "{screen}");
+    assert!(screen.contains("here.nif"), "{screen}");
+}
+
+/// Armours are picked from a plugin's records: open the picker, choose a plugin, click an
+/// armour to add its model, click again to take it away.
+#[test]
+fn armours_are_picked_from_a_plugin() {
+    let paths = crate::preview::tests::fixture_install("app_preview_picker");
+    let ctx = egui::Context::default();
+    let mut app = App::with_context(&ctx, Config::with(Install::default()));
+    settle(&mut app, &ctx);
+    app.game = Some(Ok(paths.clone()));
+    app.selection = Selection::Preview;
+
+    // Waits until `text` is on screen (the worker answers in its own time).
+    let until = |app: &mut App, text: &str| {
+        let mut screen = String::new();
+        for _ in 0..400 {
+            screen = frame(app, &ctx);
+            if screen.contains(text) {
+                return screen;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        panic!("{text:?} never appeared:\n{screen}");
+    };
+
+    frame(&mut app, &ctx);
+    click_text(&mut app, &ctx, "From a Plugin…");
+    until(&mut app, "Fixture.esp  (1)");
+    click_text(&mut app, &ctx, "Fixture.esp  (1)");
+    let screen = until(&mut app, "Fixture Cuirass   Body");
+    assert!(screen.contains("1 of 1 in Fixture.esp"), "{screen}");
+
+    click_text(&mut app, &ctx, "Fixture Cuirass   Body");
+    assert_eq!(app.preview.items(), ["meshes/fixture/quad.nif"]);
+    for _ in 0..400 {
+        frame(&mut app, &ctx);
+        if app.preview.is_drawn() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    assert!(app.preview.is_drawn(), "the armour's model was drawn");
+
+    // Clicking it again takes it away; Add All Shown puts it back.
+    click_text(&mut app, &ctx, "Fixture Cuirass   Body");
+    assert!(app.preview.items().is_empty());
+    click_text(&mut app, &ctx, "Add All Shown");
+    assert_eq!(app.preview.items(), ["meshes/fixture/quad.nif"]);
+}

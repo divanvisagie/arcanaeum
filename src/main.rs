@@ -11,6 +11,7 @@ mod features;
 mod game;
 mod loader;
 mod mod_search;
+mod preview;
 mod table;
 
 /// The app id, which Wayland matches to the installed launcher for the icon.
