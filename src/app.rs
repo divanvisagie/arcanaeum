@@ -61,6 +61,8 @@ enum Do {
     Switch(String, bool),
     /// Switch on every disabled plugin the open save was made with.
     EnableForSave,
+    /// Show what a save's character wears in the model preview; whether the character is female.
+    PreviewOutfit(PathBuf, bool),
     Apply,
     Revert,
     SetSkin(String),
@@ -383,7 +385,12 @@ impl App {
         };
         if let Some(save) = saves.and_then(|s| s.first()) {
             let path = save.path.clone();
-            self.act(ctx, Do::Select(Selection::Save(path)));
+            let female = save.header.player_sex == Sex::Female;
+            self.act(ctx, Do::Select(Selection::Save(path.clone())));
+            // `ARCANAEUM_OUTFIT`: show what that save's character wears instead of the save.
+            if std::env::var_os("ARCANAEUM_OUTFIT").is_some() {
+                self.act(ctx, Do::PreviewOutfit(path, female));
+            }
         }
     }
 
@@ -697,6 +704,15 @@ impl App {
                     self.pending.set(setup, &name, on);
                 }
             }
+            Do::PreviewOutfit(path, female) => {
+                match self.paths().cloned() {
+                    Some(paths) => {
+                        self.selection = Selection::Preview;
+                        self.preview.show_outfit(&path, female, &paths);
+                    }
+                    None => self.notify(ctx, "The game wasn't found; the preview reads its files"),
+                }
+            }
             Do::EnableForSave => {
                 let disabled: Vec<_> = self
                     .save_rows()
@@ -950,7 +966,7 @@ impl App {
         let h = &analysis.save.header;
         let colours = self.colours(ui);
 
-        let info = |ui: &mut egui::Ui| {
+        let mut info = |ui: &mut egui::Ui| {
             ui.add_space(6.0);
             ui.heading(&h.player_name);
             let race = h
@@ -997,6 +1013,16 @@ impl App {
                     line(ui, "In-game date", &h.game_date);
                     line(ui, "File", &analysis.path.display().to_string());
                 });
+            if h.is_se {
+                ui.add_space(6.0);
+                if ui
+                    .button("Preview Outfit")
+                    .on_hover_text("Draw what this character wears, with the textures the game would use")
+                    .clicked()
+                {
+                    actions.push(Do::PreviewOutfit(analysis.path.clone(), h.player_sex == Sex::Female));
+                }
+            }
         };
 
         // The save's screenshot sits top right, the details fill the rest.

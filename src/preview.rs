@@ -81,6 +81,16 @@ pub enum Job {
     Plugins { paths: Box<GamePaths>, fresh: bool },
     /// The armours of one plugin.
     Armours { plugin: String },
+    /// What the character of a save wears, as the models the load order has for it.
+    Outfit { path: PathBuf, paths: Box<GamePaths> },
+}
+
+/// What a save's character wears, ready to draw.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Dressed {
+    pub items: Vec<Item>,
+    /// What the picture leaves out and why.
+    pub notes: Vec<String>,
 }
 
 /// One armour as the picker shows it.
@@ -117,6 +127,7 @@ pub enum Reply {
     /// Plugins with armour records and how many; with what couldn't be read.
     Plugins { result: Result<PluginList, String> },
     Armours { plugin: String, result: Result<Vec<ArmourRow>, String> },
+    Outfit { path: PathBuf, result: Result<Dressed, String> },
 }
 
 // ------------------------------------------------------------------ worker
@@ -271,6 +282,43 @@ impl Worker {
             .collect())
     }
 
+    /// The models of what the character in a save wears. Reads the armours too if nothing has yet.
+    fn outfit(&mut self, path: &Path, paths: &GamePaths) -> Result<Dressed, String> {
+        let worn = skyplug_core::outfit::read_outfit_from_file(path).map_err(|e| format!("{e:#}"))?;
+        self.resolver(paths, false)?;
+        if self.catalog.is_none() {
+            self.catalog = Some(ArmourCatalog::for_game(paths).map_err(|e| format!("{e:#}"))?);
+        }
+        let catalog = self.catalog.as_ref().ok_or("the armours haven't been read yet")?;
+        let resolver = self.resolver.as_ref().map(|(_, r, _)| r);
+        let keys: Vec<_> = worn.worn.iter().map(|w| w.key.clone()).collect();
+        let armours = catalog.armours_for(&keys, resolver);
+        let mut notes = Vec::new();
+        if worn.skipped > 0 {
+            notes.push(format!("Made in game and not shown: {} (enchanted or renamed copies)", worn.skipped));
+        }
+        let others = keys.len() - armours.len();
+        if others > 0 {
+            notes.push(format!("Worn but not armour, so not shown: {others} (a weapon or a torch)"));
+        }
+        let mut items: Vec<Item> = Vec::new();
+        for a in armours {
+            if a.models.is_empty() {
+                notes.push(format!("{} has no model to show", a.label()));
+            }
+            for (path, alts) in a.models.into_iter().zip(a.alt_textures) {
+                let item = Item { path, alts };
+                if !items.contains(&item) {
+                    items.push(item);
+                }
+            }
+        }
+        if items.is_empty() {
+            notes.push("nothing the character wears has a model to show".to_string());
+        }
+        Ok(Dressed { items, notes })
+    }
+
     /// The id of the loaded model if a file it uses has changed since last looked.
     fn changed(&mut self) -> Option<u64> {
         let (_, resolver, _) = self.resolver.as_ref()?;
@@ -321,6 +369,7 @@ fn run(jobs: Receiver<Job>, replies: Sender<Reply>, ctx: egui::Context, poll: Du
                 Job::Load { id, .. } | Job::Render { id, .. } => Reply::Loaded { id: *id, result: Err(crashed) },
                 Job::Plugins { .. } => Reply::Plugins { result: Err("reading the plugins crashed".into()) },
                 Job::Armours { plugin } => Reply::Armours { plugin: plugin.clone(), result: Err("reading the armours crashed".into()) },
+                Job::Outfit { path, .. } => Reply::Outfit { path: path.clone(), result: Err("reading the outfit crashed".into()) },
             };
             // A model that panics the reader or the renderer is an error to show, not the end of the worker.
             let reply = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match job {
@@ -342,6 +391,10 @@ fn run(jobs: Receiver<Job>, replies: Sender<Reply>, ctx: egui::Context, poll: Du
                 Job::Armours { plugin } => {
                     let result = worker.armours(&plugin);
                     Some(Reply::Armours { plugin, result })
+                }
+                Job::Outfit { path, paths } => {
+                    let result = worker.outfit(&path, &paths);
+                    Some(Reply::Outfit { path, result })
                 }
             }));
             let reply = match reply {
@@ -383,6 +436,10 @@ pub struct Preview {
     in_flight: Option<ViewParams>,
     /// The armour picker, while its window is open.
     picker: Option<Picker>,
+    /// The save whose outfit is being read.
+    dressing: Option<PathBuf>,
+    /// What to tell about the models: what an outfit leaves out, or why it couldn't be read.
+    notices: Vec<String>,
 }
 
 /// The armour picker's state: plugins on the left, the chosen one's armours on the right.
@@ -437,12 +494,14 @@ impl Preview {
             drawn: None,
             in_flight: None,
             picker: None,
+            dressing: None,
+            notices: Vec::new(),
         }
     }
 
     /// Anything being read or drawn, for the status bar's spinner.
     pub fn busy(&self) -> bool {
-        self.loading || self.in_flight.is_some()
+        self.loading || self.in_flight.is_some() || self.dressing.is_some()
     }
 
     /// A picture of the current models is on screen.
@@ -476,6 +535,8 @@ impl Preview {
         self.in_flight = None;
         self.camera = Camera::default();
         self.picker = None;
+        self.dressing = None;
+        self.notices.clear();
     }
 
     /// Set what to show, for screenshot mode.
@@ -491,6 +552,22 @@ impl Preview {
         if !item.is_empty() && !self.items.iter().any(|i| i.path == item && i.alts.is_empty()) {
             self.items.push(Item::from(item));
             self.load(paths, false);
+        }
+    }
+
+    /// Show what the character in a save wears: the worker reads the save and the armours, then
+    /// what it finds replaces the models, with the body under them. `female` is whether the
+    /// character is; the preview only draws female models.
+    pub fn show_outfit(&mut self, save: &Path, female: bool, paths: &GamePaths) {
+        self.items.clear();
+        self.body = true;
+        self.notices = if female { Vec::new() } else { vec!["The preview draws the female models and body, whatever the character is".to_string()] };
+        self.dressing = Some(save.to_path_buf());
+        self.load(paths, false);
+        let job = Job::Outfit { path: save.to_path_buf(), paths: Box::new(paths.clone()) };
+        if self.jobs.send(job).is_err() {
+            self.dressing = None;
+            self.notices.push("the preview worker stopped".to_string());
         }
     }
 
@@ -596,6 +673,17 @@ impl Preview {
                         picker.plugins = Some(result);
                     }
                 }
+                Reply::Outfit { path, result } if self.dressing.as_ref() == Some(&path) => {
+                    self.dressing = None;
+                    match result {
+                        Ok(dressed) => {
+                            self.items = dressed.items;
+                            self.notices.extend(dressed.notes);
+                            self.load(paths, false);
+                        }
+                        Err(e) => self.notices.push(format!("Couldn't read what the character wears: {e}")),
+                    }
+                }
                 Reply::Armours { plugin, result } => {
                     if let Some(picker) = self.picker.as_mut().filter(|p| p.chosen.as_deref() == Some(plugin.as_str())) {
                         picker.armours = Some(result);
@@ -641,6 +729,9 @@ impl Preview {
         ui.add_space(6.0);
         ui.heading("Model Preview");
         ui.add_space(4.0);
+        for notice in &self.notices {
+            ui.weak(notice);
+        }
         let mut to_add = None;
         let mut remove = None;
         let mut changed_body = false;
@@ -698,10 +789,20 @@ impl Preview {
         }
         ui.separator();
 
-        if self.items.is_empty() {
+        if self.dressing.is_some() {
             ui.add_space(8.0);
-            ui.weak("Type a model's path inside the game's files, or drop .nif files here.");
-            ui.weak("Add the pieces of an outfit one after another to see them together.");
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.weak("Reading what the character wears…");
+            });
+            return;
+        }
+        if self.items.is_empty() {
+            if self.notices.is_empty() {
+                ui.add_space(8.0);
+                ui.weak("Type a model's path inside the game's files, or drop .nif files here.");
+                ui.weak("Add the pieces of an outfit one after another to see them together.");
+            }
             return;
         }
 
@@ -1163,6 +1264,18 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn an_outfit_from_a_file_that_is_not_a_save_is_an_error_not_a_crash() {
+        let paths = fixture_install("preview_outfit");
+        let (jobs, replies) = start(10_000);
+        let save = paths.data_dir.join("not-a-save.ess");
+        std::fs::write(&save, b"not a save").unwrap();
+        jobs.send(Job::Outfit { path: save.clone(), paths: Box::new(paths) }).unwrap();
+        let Reply::Outfit { path, result: Err(e) } = next(&replies) else { panic!() };
+        assert_eq!(path, save);
+        assert!(e.contains("not a Skyrim save") || e.contains("unexpected end"), "{e}");
+    }
+
+    #[test]
     fn the_armours_of_a_plugin_are_listed_with_their_models() {
         let paths = fixture_install("preview_armours");
         let (jobs, replies) = start(10_000);
@@ -1217,6 +1330,7 @@ pub(crate) mod tests {
                 Job::Load { id, .. } => format!("load {id}"),
                 Job::Render { view, .. } => format!("render {}", view.camera.azimuth),
                 Job::Plugins { .. } => "plugins".to_string(),
+                Job::Outfit { .. } => "outfit".to_string(),
                 Job::Armours { plugin } => format!("armours {plugin}"),
             })
             .collect();
