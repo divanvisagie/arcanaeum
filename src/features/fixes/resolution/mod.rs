@@ -46,6 +46,8 @@ pub fn fix_resolution() -> Result<(), String> {
 mod test {
     use super::*;
 
+    // Looks for a real Skyrim install, which a Windows test prefix hasn't (scripts/windows.sh).
+    #[cfg_attr(windows, ignore = "needs a real Skyrim install")]
     #[test]
     fn test_find_skyrim_settings_file() {
         let path = find_skyrim_settings_file();

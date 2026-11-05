@@ -16,7 +16,7 @@ CHARACTER ?= Divan
 
 .DEFAULT_GOAL := help
 
-.PHONY: help run dev build test check screenshot icons install uninstall clean icon
+.PHONY: help run dev build test check screenshot icons install uninstall clean icon windows-setup windows-test windows-run windows-clean
 
 help: ## Show this help
 	@echo "Usage: make <target>"
@@ -40,6 +40,20 @@ test: ## Run the tests
 # still warns.
 check: test ## Run the tests and clippy, as before a commit or release
 	cargo clippy --all-targets
+
+# The Windows build, tested on Linux with the Wine inside a Proton build (docs/windows-testing.md).
+# Not part of `make check`: it needs a toolchain and a Proton that not every machine has.
+windows-setup: ## One-time: fetch the mingw toolchain (no root) and make the Windows prefix
+	./scripts/windows.sh setup
+
+windows-test: ## Run the tests as Windows binaries under Wine (the Nexus one needs the network and is skipped)
+	./scripts/windows.sh test -- --skip search_nexus_mods_test
+
+windows-run: ## Build arcanaeum.exe and run it under Wine, in the throwaway Windows prefix
+	./scripts/windows.sh run
+
+windows-clean: ## Delete target/windows (the Windows prefix and fetched toolchain)
+	./scripts/windows.sh clean
 
 screenshot: ## Regenerate docs/screenshot-*.png of Divan's newest save (CHARACTER=Name for another)
 	@rm -rf target/scratch
