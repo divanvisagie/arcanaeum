@@ -2,47 +2,55 @@
 
 ![Arcanaeum's icon](docs/icon.png)
 
-Arcanaeum will analyse your Skyrim save games to determine which mods you used for that save, and manage your load order.
+Arcanaeum is a Skyrim mod tool for Linux and Windows. It tells you which mods your saves need, lets you switch plugins on and off, and shows you what your armours and outfits look like, without launching the game.
 
+![Divan's newest save: the plugins it was made with, beside the screenshot the game took](docs/screenshot-save.png)
 
+**Saves.** Pick a character and one of their saves. You'll see every plugin that save was made with, and whether each one is on, switched off or missing, with a download link when it can find one. **Enable Disabled Plugins** turns on everything the save needs that you already have.
 
-Pick a character and one of their saves, and Arcanaeum lists every plugin the save was made with: base game, Creation Club, active, disabled (in the game's `Data` folder but switched off in `Plugins.txt`), or not installed, with download links from the Vortex masterlist where it has them, beside the screenshot the game took when saving. **Enable Disabled Plugins** switches on everything the save needs that's already installed.
+**Load Order.** See all your plugins in order and switch them on or off. Nothing changes until you hit **Apply** (Ctrl+S). Your old `Plugins.txt` is kept as `Plugins.txt.bak`, and Edit > Revert Changes undoes everything you haven't applied. It won't apply while Skyrim is running, and it asks before you quit with changes you haven't applied.
 
-**Load Order** lists every plugin the game knows of, in load order, and switches each one on or off. Changes wait until **Apply** (Ctrl+S), which writes `Plugins.txt` and keeps the old one as `Plugins.txt.bak`; Edit > Revert Changes drops them. Arcanaeum won't apply while Skyrim is running, since the game rewrites `Plugins.txt` when it quits, and asks before quitting with changes not applied.
+![The load order, with each plugin switched on or off](docs/screenshot-load-order.png)
 
-**Model Preview** draws a model from the game's files with the textures the game would use, so a new mod or an edited texture can be checked without launching the game. Type a path inside the game's files (`meshes/armor/iron/f/cuirass_1.nif`), pick files, or drop `.nif` files on the window; add the pieces of an outfit one after another, and tick **Body** to see them on the installed body. **Pose** (on by default) poses skinned models on the game's skeleton, as the game does: pieces made on a skeleton that differs from the game's (a few mods' are shifted by a couple of units) land where they do in game, and the report says how many meshes moved. Variants with their own texture set (a Tartan or Dark version of an outfit) are drawn with it. **From a Plugin…** lists the armours in the load order instead: choose a plugin on the left (the last loaded first, so the mods are on top), then click an armour to add the models it is worn as, and again to take them away; **Add All Shown** adds a whole outfit. It shows the models the load order really uses, so a plugin that refits vanilla armours (UNP Vanilla Outfits) shows the refitted ones. Drag to turn, scroll to zoom, and **Front**, **¾**, **Right**, **Back** and **Left** jump to a side. Beside it, every texture is listed with the file the game uses (a loose file or an archive), what that file hides, or **MISSING**; Copy Report copies the list. The picture follows a texture as it is saved. It is a check of shape, mapping and colour, not the game's renderer: no normal, specular or glow maps, no skin or hair tint, and Skyrim LE models and face meshes aren't drawn.
+**Model Preview.** Look at a model with the textures the game would use, without starting the game. Handy for checking a new mod or a texture you've edited. Next to the picture is a list of every texture and where it came from. It's a quick check, not the game's own renderer.
 
-Each column of a plugin list has a filter in its header: the index, any part of the name, and which statuses to show. **Copy Report** puts the list on the clipboard.
+![Divan's outfit drawn from the save, with the textures the game would use listed beside it](docs/screenshot-outfit.png)
 
-It works with Skyrim Special Edition, Steam's or GOG's, on Linux through Proton or Wine and on Windows. Each copy is set up the same way in File > Settings: the folder holding `SkyrimSE.exe` and, on Linux, the Wine prefix it runs in (the folder holding `drive_c`), Steam's Proton prefix or GOG's under Wine or umu. **Fill In From Steam** fills both in with the copy Steam owns, and the first run does that by itself.
+**Preview Outfit** (on a save's page) shows what that character is wearing, on a male or female body to match. It only draws the outfit, not the character. Picking armours yourself, you can switch between **Female** and **Male** at the top; with an outfit from a save, that's locked to the character.
 
-Each copy of the game gets a tab in the title bar, with its own name, game folder, Wine prefix and save folder; Settings edits the tab shown. `+` adds a copy. A tab with plugins switched but not applied can't be left until they're applied or reverted. The game's files are read and written through [skyplug-core](https://crates.io/crates/skyplug-core), the library behind [skyplug](https://github.com/divanvisagie/skyplug).
+**From a Plugin…** lets you pick armours from any plugin in your load order.
 
-It's a [Patina](https://sectorflabs.com/patina/) app: an egui desktop app with its own window frame, the desktop's light/dark setting, and the suite's skins.
+![Picking armours from a plugin's records](docs/screenshot-picker.png)
+
+Every plugin list has filters at the top of its columns, and **Copy Report** copies the list.
+
+It works with Skyrim Special Edition from Steam or GOG, on Linux (Proton or Wine) and Windows. Set up each copy in File > Settings: where the game is and, on Linux, its Wine prefix. **Fill In From Steam** does it for you, and so does the first run.
+
+Each copy of the game gets its own tab at the top; `+` adds one. You can't leave a tab while it has changes you haven't applied.
+
+Under the hood it uses [skyplug-core](https://crates.io/crates/skyplug-core), the library behind [skyplug](https://github.com/divanvisagie/skyplug). It's a [Patina](https://sectorflabs.com/patina/) app, so it follows your light/dark setting and has skins.
 
 ### Future Plans
 
 - Automatic download and application of mods
 - Automatic fixing of common problems like resolution management for ultrawide monitors
 
-![Arcanaeum in the Default skin](docs/screenshot-default.png)
-
 ## Shortcuts
 
 | Keys | Action |
 | --- | --- |
-| Ctrl+S | Apply the switched plugins to `Plugins.txt` |
+| Ctrl+S | Apply your changes |
 | Ctrl+O | Open a save folder |
-| Ctrl+, | Settings for the tab shown: its name, game folder, Wine prefix and save folder |
-| Ctrl+PageUp, Ctrl+PageDown | Show the tab before or after |
+| Ctrl+, | Settings for this tab |
+| Ctrl+PageUp, Ctrl+PageDown | Previous or next tab |
 | Ctrl+Shift+T | Add a tab for another copy of the game |
-| Ctrl+R, F5 | Reload the load order, the folder and the open save |
-| Ctrl+Shift+C | Copy the report of what's shown |
+| Ctrl+R, F5 | Reload everything |
+| Ctrl+Shift+C | Copy the report |
 | Ctrl+Q | Quit |
 
 ## Skins
 
-Skins come from Patina's built-ins and `~/.config/arcanaeum/skins/`. Arcanaeum's own keys colour a plugin's status, and each falls back to the skin's text, warning, link, error and weak colours:
+Skins come from Patina's built-ins and `~/.config/arcanaeum/skins/`. A skin can also set the plugin status colours; any you leave out use the skin's own colours:
 
 ```toml
 [app.arcanaeum]
@@ -55,7 +63,7 @@ included = "#808080"   # base game and Creation Club
 
 ## Install
 
-On Linux, `make install` installs Arcanaeum, its icon and its launcher for the current user under `~/.local` (no sudo; `PREFIX=…` for elsewhere), and `make uninstall` removes them.
+On Linux, `make install` installs Arcanaeum just for you, under `~/.local` (no sudo; use `PREFIX=…` to put it elsewhere). `make uninstall` removes it.
 
 ## Build
 
@@ -64,11 +72,12 @@ Run `make` to list the targets:
 - `make run`: run the app.
 - `make test`: run the tests.
 - `make check`: tests and clippy.
-- `make screenshot`: regenerate `docs/screenshot-*.png` from Divan's newest save, in a scratch config (`CHARACTER=Name` for another character).
-- `make icons`: render the window icon from `packaging/linux/arcanaeum.svg`.
+- `make screenshot`: retake the screenshots in `docs/` (options are at the top of `scripts/screenshots.sh`).
+- `make windows-test`: run the tests as Windows programs under Wine ([how](docs/windows-testing.md)).
+- `make icons`: redraw the window icon from `packaging/linux/arcanaeum.svg`.
 - `make build`: a release binary.
 
-Settings are kept in `~/.config/arcanaeum/config.toml`. Design decisions are in [`docs/adr/`](docs/adr/README.md).
+Settings live in `~/.config/arcanaeum/config.toml`. Design decisions are in [`docs/adr/`](docs/adr/README.md).
 
 ## Licence
 
@@ -83,10 +92,6 @@ https://en.uesp.net/wiki/Skyrim_Mod:Save_File_Format https://en.uesp.net/wiki/Sk
 ### Info about matching plugins
 
 https://www.nexusmods.com/news/13921
-
-### List of skyrim mods can be found here
-
-https://github.com/loot/skyrimse
 
 ## Origin of the name
 

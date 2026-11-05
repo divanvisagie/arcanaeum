@@ -6,3 +6,4 @@ AGENTS.md
 .claude
 CLAUDE.md
 scripts/windows.local.sh
+local.mk

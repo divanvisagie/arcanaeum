@@ -11,7 +11,10 @@ ICONDIR := $(PREFIX)/share/icons/hicolor
 # the settings of a copy the user is running.
 SCRATCH_ENV := XDG_CONFIG_HOME=$(CURDIR)/target/scratch/config XDG_DATA_HOME=$(CURDIR)/target/scratch/data
 
-# Whose newest save the screenshots show: `make screenshot CHARACTER=Name`.
+# Whose newest save the screenshots show: `make screenshot CHARACTER=Name`. Machine-specific values
+# (the STEAM_* and GOG_* install folders: see scripts/screenshots.sh) go in local.mk, which git ignores.
+-include local.mk
+export CHARACTER SKIN STEAM_GAME_FOLDER STEAM_WINE_PREFIX GOG_GAME_FOLDER GOG_WINE_PREFIX
 CHARACTER ?= Divan
 
 .DEFAULT_GOAL := help
@@ -55,12 +58,8 @@ windows-run: ## Build arcanaeum.exe and run it under Wine, in the throwaway Wind
 windows-clean: ## Delete target/windows (the Windows prefix and fetched toolchain)
 	./scripts/windows.sh clean
 
-screenshot: ## Regenerate docs/screenshot-*.png of Divan's newest save (CHARACTER=Name for another)
-	@rm -rf target/scratch
-	@mkdir -p docs target/scratch/config target/scratch/data
-	@test ! -f $(HOME)/.config/user-dirs.dirs || cp $(HOME)/.config/user-dirs.dirs target/scratch/config/
-	$(SCRATCH_ENV) ARCANAEUM_CHARACTER="$(CHARACTER)" ARCANAEUM_SCREENSHOT=docs/screenshot-default.png cargo run
-	$(SCRATCH_ENV) ARCANAEUM_CHARACTER="$(CHARACTER)" ARCANAEUM_SCREENSHOT=docs/screenshot-dark-orange.png ARCANAEUM_SKIN="Dark Orange" cargo run
+screenshot: ## Regenerate docs/screenshot-*.png of Divan's newest save (CHARACTER=Name for another, SKIN=...)
+	./scripts/screenshots.sh
 
 icons: ## Render assets/arcanaeum-icon-128.png from packaging/linux/arcanaeum.svg
 	cargo run -q --example render_icon -- 128 assets/arcanaeum-icon-128.png
