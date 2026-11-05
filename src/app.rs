@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use patina::frame::{self, TitleBar};
 use patina::skin::{self, Skin};
 use patina::tabs::{self, TabAction, TabStrip};
+use skyplug_core::armour::BodySex;
 use skyplug_core::saves::{self, Sex};
 use skyplug_core::GamePaths;
 
@@ -61,8 +62,9 @@ enum Do {
     Switch(String, bool),
     /// Switch on every disabled plugin the open save was made with.
     EnableForSave,
-    /// Show what a save's character wears in the model preview; whether the character is female.
-    PreviewOutfit(PathBuf, bool),
+    /// Show what a save's character wears in the model preview: the save, and its character's
+    /// body and whether they are an Argonian or a Khajiit.
+    PreviewOutfit(PathBuf, BodySex, bool),
     Apply,
     Revert,
     SetSkin(String),
@@ -371,6 +373,10 @@ impl App {
     /// Screenshot mode: opens the newest save of `ARCANAEUM_CHARACTER`, or
     /// of the first character.
     fn open_screenshot_save(&mut self, ctx: &egui::Context) {
+        // `ARCANAEUM_LOAD_ORDER`: stay on the Load Order view instead of opening a save.
+        if std::env::var_os("ARCANAEUM_LOAD_ORDER").is_some() {
+            return;
+        }
         let saves = match std::env::var("ARCANAEUM_CHARACTER") {
             Ok(name) => {
                 let saves = self.characters.get(&name);
@@ -385,11 +391,11 @@ impl App {
         };
         if let Some(save) = saves.and_then(|s| s.first()) {
             let path = save.path.clone();
-            let female = save.header.player_sex == Sex::Female;
+            let (sex, beast) = (save.header.player_sex.into(), is_beast(&save.header));
             self.act(ctx, Do::Select(Selection::Save(path.clone())));
             // `ARCANAEUM_OUTFIT`: show what that save's character wears instead of the save.
             if std::env::var_os("ARCANAEUM_OUTFIT").is_some() {
-                self.act(ctx, Do::PreviewOutfit(path, female));
+                self.act(ctx, Do::PreviewOutfit(path, sex, beast));
             }
         }
     }
@@ -704,11 +710,11 @@ impl App {
                     self.pending.set(setup, &name, on);
                 }
             }
-            Do::PreviewOutfit(path, female) => {
+            Do::PreviewOutfit(path, sex, beast) => {
                 match self.paths().cloned() {
                     Some(paths) => {
                         self.selection = Selection::Preview;
-                        self.preview.show_outfit(&path, female, &paths);
+                        self.preview.show_outfit(&path, sex, beast, &paths);
                     }
                     None => self.notify(ctx, "The game wasn't found; the preview reads its files"),
                 }
@@ -1020,7 +1026,7 @@ impl App {
                     .on_hover_text("Draw what this character wears, with the textures the game would use")
                     .clicked()
                 {
-                    actions.push(Do::PreviewOutfit(analysis.path.clone(), h.player_sex == Sex::Female));
+                    actions.push(Do::PreviewOutfit(analysis.path.clone(), h.player_sex.into(), is_beast(h)));
                 }
             }
         };
@@ -1265,9 +1271,14 @@ impl App {
     /// Screenshot mode: once the first save is shown, save the window and quit.
     fn take_screenshot(&mut self, ctx: &egui::Context) {
         let ready = self.open_save().is_some()
+            || (self.selection == Selection::LoadOrder
+                && std::env::var_os("ARCANAEUM_LOAD_ORDER").is_some()
+                && self.setup.is_some()
+                && !self.loader.busy())
             || (self.selection == Selection::Preview
                 && (self.preview.is_drawn() || self.preview.picker_ready())
-                && (std::env::var_os("ARCANAEUM_PREVIEW").is_none() || self.preview.is_drawn()))
+                && (std::env::var_os("ARCANAEUM_PREVIEW").is_none() && std::env::var_os("ARCANAEUM_OUTFIT").is_none()
+                    || self.preview.is_drawn()))
             || (self.selection != Selection::Preview
                 && !self.loader.busy()
                 && self.folder.is_some()
@@ -1396,6 +1407,12 @@ impl App {
 }
 
 /// "1 change", "3 changes".
+/// An Argonian or a Khajiit, whose own bodies the preview doesn't have.
+fn is_beast(h: &saves::SaveHeader) -> bool {
+    let race = &h.player_race_editor_id;
+    race.starts_with("Argonian") || race.starts_with("Khajiit")
+}
+
 fn plural(n: usize, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }

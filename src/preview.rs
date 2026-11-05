@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, SystemTime};
 
-use skyplug_core::armour::{self, AltTexture, ArmourCatalog};
+use skyplug_core::armour::{self, AltTexture, ArmourCatalog, BodySex};
 use skyplug_core::assets::{AssetResolver, Source};
 use skyplug_core::dds::Rgba;
 use skyplug_core::nif::Skeleton;
@@ -51,6 +51,30 @@ impl Item {
     }
 }
 
+/// One thing added to the preview: a model typed or picked as a file, or an armour, which is
+/// worn as other models on a woman and on a man. Switching the body swaps the models without
+/// reading anything again.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Piece {
+    pub female: Vec<Item>,
+    pub male: Vec<Item>,
+}
+
+impl Piece {
+    /// A model file: the same on either body.
+    pub fn file(item: Item) -> Self {
+        Piece { female: vec![item.clone()], male: vec![item] }
+    }
+
+    /// The models to draw on `sex`'s body.
+    pub fn items(&self, sex: BodySex) -> &[Item] {
+        match sex {
+            BodySex::Female => &self.female,
+            BodySex::Male => &self.male,
+        }
+    }
+}
+
 /// What to draw: models, as game paths or files on disk, and whether to put
 /// the installed body under them.
 #[derive(Debug, Clone, PartialEq)]
@@ -59,6 +83,8 @@ pub struct Request {
     pub body: bool,
     /// Pose skinned models on the game's skeleton, as the game does; off draws them as stored.
     pub pose: bool,
+    /// The body to put under the models, and the skeleton to pose them on.
+    pub sex: BodySex,
 }
 
 /// How to draw it.
@@ -79,10 +105,10 @@ pub enum Job {
     Render { id: u64, view: ViewParams },
     /// Read the load order's armours (the catalog the picker lists from).
     Plugins { paths: Box<GamePaths>, fresh: bool },
-    /// The armours of one plugin.
-    Armours { plugin: String },
-    /// What the character of a save wears, as the models the load order has for it.
-    Outfit { path: PathBuf, paths: Box<GamePaths> },
+    /// The armours of one plugin; `sex` is whose models are checked for what the game won't draw.
+    Armours { plugin: String, sex: BodySex },
+    /// What the character of a save wears, as the models the load order has for `sex`.
+    Outfit { path: PathBuf, paths: Box<GamePaths>, sex: BodySex },
 }
 
 /// What a save's character wears, ready to draw.
@@ -99,12 +125,29 @@ pub struct ArmourRow {
     pub label: String,
     pub editor_id: String,
     pub slots: String,
-    /// The models it's worn as, with their texture swaps.
-    pub models: Vec<Item>,
+    /// The models it's worn as by women and by men, with their texture swaps.
+    pub female: Vec<Item>,
+    pub male: Vec<Item>,
     /// For an armour the plugin only changes: the plugin that adds it.
     pub changes: Option<String>,
-    /// What the game won't draw of its models: a shape whose skin partition is on a slot the armature isn't worn on.
+    /// What the game won't draw of its models (for the body asked for): a shape whose skin
+    /// partition is on a slot the armature isn't worn on.
     pub problems: Vec<String>,
+}
+
+impl ArmourRow {
+    /// The models worn on `sex`'s body.
+    pub fn models(&self, sex: BodySex) -> &[Item] {
+        match sex {
+            BodySex::Female => &self.female,
+            BodySex::Male => &self.male,
+        }
+    }
+
+    /// This armour as something to add to the preview.
+    pub fn piece(&self) -> Piece {
+        Piece { female: self.female.clone(), male: self.male.clone() }
+    }
 }
 
 /// What loading a request found.
@@ -151,8 +194,8 @@ struct Current {
 
 struct Worker {
     poll: Duration,
-    /// The game's files, and its female skeleton (read once with them).
-    resolver: Option<(PathBuf, AssetResolver, Option<Skeleton>)>,
+    /// The game's files, and its female and male skeletons (read once with them).
+    resolver: Option<(PathBuf, AssetResolver, [Option<Skeleton>; 2])>,
     current: Option<Current>,
     catalog: Option<ArmourCatalog>,
 }
@@ -176,18 +219,23 @@ fn modified(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
+/// A model set as items: each model with the texture swaps its armature applies.
+fn items_of(set: armour::ModelSet) -> Vec<Item> {
+    set.models.into_iter().zip(set.alt_textures).map(|(path, alts)| Item { path, alts }).collect()
+}
+
 impl Worker {
-    fn resolver(&mut self, paths: &GamePaths, fresh: bool) -> Result<(&AssetResolver, Option<&Skeleton>), String> {
+    fn resolver(&mut self, paths: &GamePaths, fresh: bool) -> Result<(&AssetResolver, &[Option<Skeleton>; 2]), String> {
         let stale = fresh || self.resolver.as_ref().is_none_or(|(data, _, _)| data != &paths.data_dir);
         if stale {
             let resolver = AssetResolver::for_game(paths).map_err(|e| format!("{e:#}"))?;
-            let skeleton = render::load_skeleton(&resolver);
-            self.resolver = Some((paths.data_dir.clone(), resolver, skeleton));
+            let skeletons = [render::load_skeleton_for(&resolver, BodySex::Female), render::load_skeleton_for(&resolver, BodySex::Male)];
+            self.resolver = Some((paths.data_dir.clone(), resolver, skeletons));
         } else if let Some((_, r, _)) = &self.resolver {
             r.clear_cache();
         }
-        let (_, resolver, skeleton) = self.resolver.as_ref().expect("set above");
-        Ok((resolver, skeleton.as_ref()))
+        let (_, resolver, skeletons) = self.resolver.as_ref().expect("set above");
+        Ok((resolver, skeletons))
     }
 
     fn print(resolver: &AssetResolver, watch: &Watch) -> Print {
@@ -204,7 +252,8 @@ impl Worker {
     }
 
     fn load(&mut self, id: u64, paths: &GamePaths, request: &Request, fresh: bool) -> Result<Loaded, String> {
-        let (resolver, skeleton) = self.resolver(paths, fresh)?;
+        let (resolver, skeletons) = self.resolver(paths, fresh)?;
+        let skeleton = skeletons[request.sex as usize].as_ref();
         let mut model = Model::default();
         let mut problems = Vec::new();
         let mut watched = Vec::new();
@@ -223,7 +272,7 @@ impl Worker {
             watched.push(if on_disk { Watch::File(PathBuf::from(&item.path)) } else { Watch::Asset(item.path.clone()) });
         }
         if request.body {
-            for asset in render::FEMALE_BODY {
+            for asset in request.sex.body() {
                 if let Ok(Some(body)) = Model::from_asset(resolver, asset, MAX_TEXTURE_SIDE) {
                     model.merge_underlay(body);
                     watched.push(Watch::Asset(asset.to_string()));
@@ -265,7 +314,7 @@ impl Worker {
         Ok(result)
     }
 
-    fn armours(&self, plugin: &str) -> Result<Vec<ArmourRow>, String> {
+    fn armours(&self, plugin: &str, sex: BodySex) -> Result<Vec<ArmourRow>, String> {
         let catalog = self.catalog.as_ref().ok_or("the armours haven't been read yet")?;
         let resolver = self.resolver.as_ref().map(|(_, r, _)| r);
         let armours = catalog.armours_in(plugin, resolver).map_err(|e| format!("{e:#}"))?;
@@ -275,15 +324,16 @@ impl Worker {
                 label: a.label().to_string(),
                 slots: a.slot_names().join(", "),
                 changes: a.is_override().then(|| a.defined_in.clone()),
-                problems: resolver.map(|r| a.visibility_problems(r)).unwrap_or_default(),
+                problems: resolver.map(|r| a.visibility_problems(sex, r)).unwrap_or_default(),
                 editor_id: a.editor_id,
-                models: a.models.into_iter().zip(a.alt_textures).map(|(path, alts)| Item { path, alts }).collect(),
+                female: items_of(a.female),
+                male: items_of(a.male),
             })
             .collect())
     }
 
     /// The models of what the character in a save wears. Reads the armours too if nothing has yet.
-    fn outfit(&mut self, path: &Path, paths: &GamePaths) -> Result<Dressed, String> {
+    fn outfit(&mut self, path: &Path, paths: &GamePaths, sex: BodySex) -> Result<Dressed, String> {
         let worn = skyplug_core::outfit::read_outfit_from_file(path).map_err(|e| format!("{e:#}"))?;
         self.resolver(paths, false)?;
         if self.catalog.is_none() {
@@ -303,11 +353,12 @@ impl Worker {
         }
         let mut items: Vec<Item> = Vec::new();
         for a in armours {
-            if a.models.is_empty() {
-                notes.push(format!("{} has no model to show", a.label()));
+            let label = a.label().to_string();
+            let set = if sex == BodySex::Male { a.male } else { a.female };
+            if set.models.is_empty() {
+                notes.push(format!("{label} has no model to show"));
             }
-            for (path, alts) in a.models.into_iter().zip(a.alt_textures) {
-                let item = Item { path, alts };
+            for item in items_of(set) {
                 if !items.contains(&item) {
                     items.push(item);
                 }
@@ -368,7 +419,7 @@ fn run(jobs: Receiver<Job>, replies: Sender<Reply>, ctx: egui::Context, poll: Du
             let on_panic = match &job {
                 Job::Load { id, .. } | Job::Render { id, .. } => Reply::Loaded { id: *id, result: Err(crashed) },
                 Job::Plugins { .. } => Reply::Plugins { result: Err("reading the plugins crashed".into()) },
-                Job::Armours { plugin } => Reply::Armours { plugin: plugin.clone(), result: Err("reading the armours crashed".into()) },
+                Job::Armours { plugin, .. } => Reply::Armours { plugin: plugin.clone(), result: Err("reading the armours crashed".into()) },
                 Job::Outfit { path, .. } => Reply::Outfit { path: path.clone(), result: Err("reading the outfit crashed".into()) },
             };
             // A model that panics the reader or the renderer is an error to show, not the end of the worker.
@@ -388,12 +439,12 @@ fn run(jobs: Receiver<Job>, replies: Sender<Reply>, ctx: egui::Context, poll: Du
                     Some(Reply::Image { id, view, image: render::render(&current.model, &view.camera, &options) })
                 }
                 Job::Plugins { paths, fresh } => Some(Reply::Plugins { result: worker.plugins(&paths, fresh) }),
-                Job::Armours { plugin } => {
-                    let result = worker.armours(&plugin);
+                Job::Armours { plugin, sex } => {
+                    let result = worker.armours(&plugin, sex);
                     Some(Reply::Armours { plugin, result })
                 }
-                Job::Outfit { path, paths } => {
-                    let result = worker.outfit(&path, &paths);
+                Job::Outfit { path, paths, sex } => {
+                    let result = worker.outfit(&path, &paths, sex);
                     Some(Reply::Outfit { path, result })
                 }
             }));
@@ -420,8 +471,13 @@ fn run(jobs: Receiver<Job>, replies: Sender<Reply>, ctx: egui::Context, poll: Du
 pub struct Preview {
     jobs: Sender<Job>,
     replies: Receiver<Reply>,
-    items: Vec<Item>,
+    items: Vec<Piece>,
     body: bool,
+    /// Whose body, models and skeleton are drawn.
+    sex: BodySex,
+    /// The sex is the character's, from the save the outfit came from, and can't be changed
+    /// until that outfit is cleared.
+    locked: bool,
     /// Pose skinned models on the game's skeleton (on unless turned off).
     pose: bool,
     /// The text being typed to add a model.
@@ -484,6 +540,8 @@ impl Preview {
             replies,
             items: Vec::new(),
             body: false,
+            sex: BodySex::Female,
+            locked: false,
             pose: true,
             input: String::new(),
             id: 0,
@@ -512,7 +570,7 @@ impl Preview {
     /// The models being shown.
     #[cfg(test)]
     pub fn items(&self) -> Vec<&str> {
-        self.items.iter().map(|i| i.path.as_str()).collect()
+        self.items.iter().flat_map(|p| p.items(self.sex)).map(|i| i.path.as_str()).collect()
     }
 
     /// Where the camera is.
@@ -526,6 +584,8 @@ impl Preview {
         self.items.clear();
         self.input.clear();
         self.body = false;
+        self.sex = BodySex::Female;
+        self.locked = false;
         self.pose = true;
         self.id += 1;
         self.loading = false;
@@ -541,7 +601,7 @@ impl Preview {
 
     /// Set what to show, for screenshot mode.
     pub fn show(&mut self, items: Vec<String>, body: bool, paths: &GamePaths) {
-        self.items = items.iter().map(|i| Item::from(i.as_str())).collect();
+        self.items = items.iter().map(|i| Piece::file(Item::from(i.as_str()))).collect();
         self.body = body;
         self.load(paths, false);
     }
@@ -549,22 +609,26 @@ impl Preview {
     /// Add a model (a game path or a file) and load.
     pub fn add(&mut self, item: &str, paths: &GamePaths) {
         let item = item.trim();
-        if !item.is_empty() && !self.items.iter().any(|i| i.path == item && i.alts.is_empty()) {
-            self.items.push(Item::from(item));
+        let piece = Piece::file(Item::from(item));
+        if !item.is_empty() && !self.items.contains(&piece) {
+            self.items.push(piece);
             self.load(paths, false);
         }
     }
 
     /// Show what the character in a save wears: the worker reads the save and the armours, then
-    /// what it finds replaces the models, with the body under them. `female` is whether the
-    /// character is; the preview only draws female models.
-    pub fn show_outfit(&mut self, save: &Path, female: bool, paths: &GamePaths) {
+    /// what it finds replaces the models, with the body under them. The body is the character's
+    /// `sex`, and stays so until the outfit is cleared; `beast` is for an Argonian or a Khajiit,
+    /// who are drawn with the human models.
+    pub fn show_outfit(&mut self, save: &Path, sex: BodySex, beast: bool, paths: &GamePaths) {
         self.items.clear();
         self.body = true;
-        self.notices = if female { Vec::new() } else { vec!["The preview draws the female models and body, whatever the character is".to_string()] };
+        self.sex = sex;
+        self.locked = true;
+        self.notices = if beast { vec!["Argonians and Khajiit are drawn with the human models and body".to_string()] } else { Vec::new() };
         self.dressing = Some(save.to_path_buf());
         self.load(paths, false);
-        let job = Job::Outfit { path: save.to_path_buf(), paths: Box::new(paths.clone()) };
+        let job = Job::Outfit { path: save.to_path_buf(), paths: Box::new(paths.clone()), sex };
         if self.jobs.send(job).is_err() {
             self.dressing = None;
             self.notices.push("the preview worker stopped".to_string());
@@ -600,14 +664,14 @@ impl Preview {
         let chosen = picker.chosen.clone();
         let _ = self.jobs.send(Job::Plugins { paths: Box::new(paths.clone()), fresh });
         if let Some(plugin) = chosen {
-            let _ = self.jobs.send(Job::Armours { plugin });
+            let _ = self.jobs.send(Job::Armours { plugin, sex: self.sex });
         }
     }
 
-    /// Add models (game paths) not already there, and load once.
-    fn add_all(&mut self, models: &[Item], paths: &GamePaths) {
+    /// Add pieces not already there, and load once.
+    fn add_all(&mut self, pieces: &[Piece], paths: &GamePaths) {
         let before = self.items.len();
-        for m in models {
+        for m in pieces {
             if !self.items.contains(m) {
                 self.items.push(m.clone());
             }
@@ -617,13 +681,26 @@ impl Preview {
         }
     }
 
-    /// Take away models that are there.
-    fn remove_all(&mut self, models: &[Item], paths: &GamePaths) {
+    /// Take away pieces that are there.
+    fn remove_all(&mut self, pieces: &[Piece], paths: &GamePaths) {
         let before = self.items.len();
-        self.items.retain(|i| !models.contains(i));
+        self.items.retain(|i| !pieces.contains(i));
         if self.items.len() != before {
+            self.unlock_if_empty();
             self.load(paths, false);
         }
+    }
+
+    /// With nothing left of a character's outfit, the body can be chosen again.
+    fn unlock_if_empty(&mut self) {
+        if self.items.is_empty() {
+            self.locked = false;
+        }
+    }
+
+    /// The models to draw: each piece's, on the chosen body.
+    fn models(&self) -> Vec<Item> {
+        self.items.iter().flat_map(|p| p.items(self.sex).iter().cloned()).collect()
     }
 
     fn load(&mut self, paths: &GamePaths, fresh: bool) {
@@ -640,7 +717,7 @@ impl Preview {
         let job = Job::Load {
             id: self.id,
             paths: Box::new(paths.clone()),
-            request: Request { items: self.items.clone(), body: self.body, pose: self.pose },
+            request: Request { items: self.models(), body: self.body, pose: self.pose, sex: self.sex },
             fresh,
         };
         if self.jobs.send(job).is_err() {
@@ -677,7 +754,7 @@ impl Preview {
                     self.dressing = None;
                     match result {
                         Ok(dressed) => {
-                            self.items = dressed.items;
+                            self.items = dressed.items.into_iter().map(Piece::file).collect();
                             self.notices.extend(dressed.notes);
                             self.load(paths, false);
                         }
@@ -697,7 +774,7 @@ impl Preview {
     /// The textures and problems as plain text, for Copy Report.
     pub fn report(&self) -> Option<String> {
         let loaded = self.loaded.as_ref()?.as_ref().ok()?;
-        let mut out = format!("Model preview\n{}\n", self.items.iter().map(Item::label).collect::<Vec<_>>().join("\n"));
+        let mut out = format!("Model preview ({})\n{}\n", if self.sex == BodySex::Male { "male" } else { "female" }, self.models().iter().map(Item::label).collect::<Vec<_>>().join("\n"));
         if let Some(p) = loaded.pose.filter(|p| p.posed > 0) {
             out.push_str(&format!("posed on the game's skeleton: {} of {} skinned meshes move, by up to {:.1} units\n", p.moved, p.posed, p.largest));
         }
@@ -735,11 +812,12 @@ impl Preview {
         let mut to_add = None;
         let mut remove = None;
         let mut changed_body = false;
+        let mut changed_sex = false;
         ui.horizontal(|ui| {
             let edit = ui.add(
                 egui::TextEdit::singleline(&mut self.input)
                     .hint_text("meshes/armor/iron/f/cuirass_1.nif")
-                    .desired_width((ui.available_width() - 450.0).max(120.0)),
+                    .desired_width((ui.available_width() - 580.0).max(120.0)),
             );
             let entered = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             if ui.button("Add").clicked() || entered {
@@ -765,11 +843,23 @@ impl Preview {
                 .checkbox(&mut self.pose, "Pose")
                 .on_hover_text("Pose skinned models on the game's skeleton, as the game does. Off draws them as stored in the file.")
                 .changed();
+            ui.separator();
+            let why_locked = "Set by the character in the save. Remove the outfit to choose again.";
+            for (sex, name) in [(BodySex::Female, "Female"), (BodySex::Male, "Male")] {
+                let button = ui.add_enabled(!self.locked, egui::Button::selectable(self.sex == sex, name));
+                let button = if self.locked { button.on_disabled_hover_text(why_locked) } else { button.on_hover_text("Draw armours and the body as this sex wears them") };
+                if button.clicked() && self.sex != sex {
+                    self.sex = sex;
+                    changed_sex = true;
+                }
+            }
         });
         if !self.items.is_empty() {
             ui.horizontal_wrapped(|ui| {
-                for (i, item) in self.items.iter().enumerate() {
-                    ui.label(item.label()).on_hover_text(&item.path);
+                for (i, piece) in self.items.iter().enumerate() {
+                    for item in piece.items(self.sex) {
+                        ui.label(item.label()).on_hover_text(&item.path);
+                    }
                     if ui.small_button("×").on_hover_text("Remove").clicked() {
                         remove = Some(i);
                     }
@@ -782,10 +872,15 @@ impl Preview {
         }
         if let Some(i) = remove {
             self.items.remove(i);
+            self.unlock_if_empty();
             self.load(paths, false);
         }
-        if changed_body {
+        if changed_body || changed_sex {
             self.load(paths, false);
+        }
+        if changed_sex && self.picker.is_some() {
+            // The picker's slot checks are for one body.
+            self.open_picker(paths, false);
         }
         ui.separator();
 
@@ -819,8 +914,8 @@ impl Preview {
         let Some(mut picker) = self.picker.take() else { return };
         let mut open = true;
         let mut choose = None;
-        let mut add: Vec<Item> = Vec::new();
-        let mut remove: Vec<Item> = Vec::new();
+        let mut add: Vec<Piece> = Vec::new();
+        let mut remove: Vec<Piece> = Vec::new();
         egui::Window::new("Add Armour from a Plugin")
             .id(egui::Id::new("armour-picker"))
             .default_size([760.0, 520.0])
@@ -882,14 +977,15 @@ impl Preview {
                             .collect();
                         ui.horizontal(|ui| {
                             ui.weak(format!("{} of {} in {plugin}", shown.len(), rows.len()));
-                            let all: Vec<Item> = shown.iter().flat_map(|r| r.models.iter().cloned()).collect();
+                            let all: Vec<Piece> = shown.iter().filter(|r| !r.models(self.sex).is_empty()).map(|r| r.piece()).collect();
                             if ui.button("Add All Shown").on_hover_text("Add every armour listed, for a whole outfit").clicked() {
                                 add = all;
                             }
                         });
                         egui::ScrollArea::vertical().id_salt("picker-armour-list").auto_shrink(false).show(ui, |ui| {
                             for r in shown {
-                                let in_use = !r.models.is_empty() && r.models.iter().all(|m| self.items.contains(m));
+                                let models = r.models(self.sex);
+                                let in_use = !models.is_empty() && self.items.contains(&r.piece());
                                 let mut text = r.label.clone();
                                 if !r.slots.is_empty() {
                                     text.push_str(&format!("   {}", r.slots));
@@ -897,7 +993,7 @@ impl Preview {
                                 if let Some(base) = &r.changes {
                                     text.push_str(&format!("   changes {base}"));
                                 }
-                                if r.models.is_empty() {
+                                if models.is_empty() {
                                     text.push_str("   no models");
                                 }
                                 let broken = !r.problems.is_empty();
@@ -905,19 +1001,19 @@ impl Preview {
                                     text.push_str("   SLOT MISMATCH");
                                 }
                                 let label = if broken { egui::RichText::new(text).color(colours.missing) } else { egui::RichText::new(text) };
-                                let paths_text: Vec<&str> = r.models.iter().map(|m| m.path.as_str()).collect();
+                                let paths_text: Vec<&str> = models.iter().map(|m| m.path.as_str()).collect();
                                 let mut hover = format!("{}\n{}", r.editor_id, paths_text.join("\n"));
-                                if r.models.iter().any(|m| !m.alts.is_empty()) {
+                                if models.iter().any(|m| !m.alts.is_empty()) {
                                     hover.push_str("\n(wears alternate textures)");
                                 }
                                 if broken {
                                     hover.push_str(&format!("\n\n{}", r.problems.join("\n")));
                                 }
                                 let row = ui
-                                    .add_enabled(!r.models.is_empty(), egui::Button::selectable(in_use, label).truncate())
+                                    .add_enabled(!models.is_empty(), egui::Button::selectable(in_use, label).truncate())
                                     .on_hover_text(hover);
                                 if row.clicked() {
-                                    if in_use { remove = r.models.clone() } else { add = r.models.clone() }
+                                    if in_use { remove = vec![r.piece()] } else { add = vec![r.piece()] }
                                 }
                             }
                         });
@@ -927,7 +1023,7 @@ impl Preview {
         if let Some(name) = choose {
             picker.chosen = Some(name.clone());
             picker.armours = None;
-            let _ = self.jobs.send(Job::Armours { plugin: name });
+            let _ = self.jobs.send(Job::Armours { plugin: name, sex: self.sex });
         }
         if open {
             self.picker = Some(picker);
@@ -1120,7 +1216,7 @@ pub(crate) mod tests {
     }
 
     fn load(jobs: &Sender<Job>, paths: &GamePaths, id: u64, items: &[&str]) {
-        let request = Request { items: items.iter().map(|s| Item::from(*s)).collect(), body: false, pose: true };
+        let request = Request { items: items.iter().map(|s| Item::from(*s)).collect(), body: false, pose: true, sex: BodySex::Female };
         jobs.send(Job::Load { id, paths: Box::new(paths.clone()), request, fresh: false }).unwrap();
     }
 
@@ -1160,18 +1256,18 @@ pub(crate) mod tests {
         let (jobs, replies) = start(10_000);
         jobs.send(Job::Plugins { paths: Box::new(paths.clone()), fresh: false }).unwrap();
         let _ = next(&replies);
-        jobs.send(Job::Armours { plugin: "Fixture.esp".into() }).unwrap();
+        jobs.send(Job::Armours { plugin: "Fixture.esp".into(), sex: BodySex::Female }).unwrap();
         let Reply::Armours { result: Ok(rows), .. } = next(&replies) else { panic!() };
         let centre = |item: Item, id: u64| {
-            let request = Request { items: vec![item], body: false, pose: false };
+            let request = Request { items: vec![item], body: false, pose: false, sex: BodySex::Female };
             jobs.send(Job::Load { id, paths: Box::new(paths.clone()), request, fresh: false }).unwrap();
             let Reply::Loaded { result: Ok(loaded), .. } = next(&replies) else { panic!() };
             jobs.send(Job::Render { id, view: view(0.0) }).unwrap();
             let Reply::Image { image, .. } = next(&replies) else { panic!() };
             (image.pixels[(32 * 64 + 32) * 4..][..4].to_vec(), loaded)
         };
-        let (base, _) = centre(rows[0].models[0].clone(), 1);
-        let (variant, loaded) = centre(rows[1].models[0].clone(), 2);
+        let (base, _) = centre(rows[0].female[0].clone(), 1);
+        let (variant, loaded) = centre(rows[1].female[0].clone(), 2);
         assert!(base[0] > 100 && base[2] < 40, "the base armour is red: {base:?}");
         assert!(variant[2] > 100 && variant[0] < 40, "its variant is blue: {variant:?}");
         // The report names the swapped-in texture, not the model's own.
@@ -1183,7 +1279,7 @@ pub(crate) mod tests {
     fn posing_can_be_turned_off() {
         let paths = fixture_install("preview_pose_off");
         let (jobs, replies) = start(10_000);
-        let request = Request { items: vec![Item::from("meshes/fixture/quad.nif")], body: false, pose: false };
+        let request = Request { items: vec![Item::from("meshes/fixture/quad.nif")], body: false, pose: false, sex: BodySex::Female };
         jobs.send(Job::Load { id: 1, paths: Box::new(paths), request, fresh: false }).unwrap();
         let Reply::Loaded { result: Ok(loaded), .. } = next(&replies) else { panic!() };
         assert_eq!(loaded.pose, None);
@@ -1269,7 +1365,7 @@ pub(crate) mod tests {
         let (jobs, replies) = start(10_000);
         let save = paths.data_dir.join("not-a-save.ess");
         std::fs::write(&save, b"not a save").unwrap();
-        jobs.send(Job::Outfit { path: save.clone(), paths: Box::new(paths) }).unwrap();
+        jobs.send(Job::Outfit { path: save.clone(), paths: Box::new(paths), sex: BodySex::Female }).unwrap();
         let Reply::Outfit { path, result: Err(e) } = next(&replies) else { panic!() };
         assert_eq!(path, save);
         assert!(e.contains("not a Skyrim save") || e.contains("unexpected end"), "{e}");
@@ -1280,7 +1376,7 @@ pub(crate) mod tests {
         let paths = fixture_install("preview_armours");
         let (jobs, replies) = start(10_000);
         // Asked before the catalog is read: an error, not a hang or a crash.
-        jobs.send(Job::Armours { plugin: "Fixture.esp".into() }).unwrap();
+        jobs.send(Job::Armours { plugin: "Fixture.esp".into(), sex: BodySex::Female }).unwrap();
         let Reply::Armours { result: Err(e), .. } = next(&replies) else { panic!() };
         assert!(e.contains("haven't been read"), "{e}");
 
@@ -1289,7 +1385,7 @@ pub(crate) mod tests {
         assert_eq!(plugins, [("Fixture.esp".to_string(), 2)]);
         assert!(problems.is_empty(), "{problems:?}");
 
-        jobs.send(Job::Armours { plugin: "Fixture.esp".into() }).unwrap();
+        jobs.send(Job::Armours { plugin: "Fixture.esp".into(), sex: BodySex::Female }).unwrap();
         let Reply::Armours { plugin, result: Ok(rows) } = next(&replies) else { panic!() };
         assert_eq!(plugin, "Fixture.esp");
         assert_eq!(rows.len(), 2);
@@ -1299,19 +1395,20 @@ pub(crate) mod tests {
                 label: "Fixture Cuirass".into(),
                 editor_id: "FixtureCuirass".into(),
                 slots: "Body".into(),
-                models: vec![Item::from("meshes/fixture/quad.nif")],
+                female: vec![Item::from("meshes/fixture/quad.nif")],
+                male: vec![Item::from("meshes/fixture/quad.nif")],
                 changes: None,
                 problems: vec![]
             }
         );
         // The variant wears the same model with a texture swap, so it is a different item.
         assert_eq!(rows[1].label, "Fixture Cuirass Alt");
-        assert_eq!(rows[1].models[0].path, "meshes/fixture/quad.nif");
-        assert_eq!(rows[1].models[0].alts.len(), 1);
-        assert_eq!(rows[1].models[0].alts[0].shape, "Quad");
-        assert_eq!(rows[1].models[0].alts[0].textures[0], "textures/fixture/blue.dds");
-        assert_ne!(rows[0].models[0], rows[1].models[0]);
-        jobs.send(Job::Armours { plugin: "Nope.esp".into() }).unwrap();
+        assert_eq!(rows[1].female[0].path, "meshes/fixture/quad.nif");
+        assert_eq!(rows[1].female[0].alts.len(), 1);
+        assert_eq!(rows[1].female[0].alts[0].shape, "Quad");
+        assert_eq!(rows[1].female[0].alts[0].textures[0], "textures/fixture/blue.dds");
+        assert_ne!(rows[0].female[0], rows[1].female[0]);
+        jobs.send(Job::Armours { plugin: "Nope.esp".into(), sex: BodySex::Female }).unwrap();
         let Reply::Armours { result: Err(e), .. } = next(&replies) else { panic!() };
         assert!(e.contains("isn't in the load order"), "{e}");
     }
@@ -1319,10 +1416,10 @@ pub(crate) mod tests {
     #[test]
     fn coalescing_keeps_the_newest_render_and_everything_else_in_order() {
         let paths = fixture_install("preview_coalesce_unit");
-        let req = || Request { items: vec![], body: false, pose: true };
+        let req = || Request { items: vec![], body: false, pose: true, sex: BodySex::Female };
         let load = |id| Job::Load { id, paths: Box::new(paths.clone()), request: req(), fresh: false };
         let render = |id, az| Job::Render { id, view: view(az) };
-        let armours = || Job::Armours { plugin: "A.esp".into() };
+        let armours = || Job::Armours { plugin: "A.esp".into(), sex: BodySex::Female };
         let out = coalesce(vec![render(1, 1.0), load(2), render(2, 2.0), armours(), render(2, 3.0), load(3)]);
         let shape: Vec<_> = out
             .iter()
@@ -1331,10 +1428,60 @@ pub(crate) mod tests {
                 Job::Render { view, .. } => format!("render {}", view.camera.azimuth),
                 Job::Plugins { .. } => "plugins".to_string(),
                 Job::Outfit { .. } => "outfit".to_string(),
-                Job::Armours { plugin } => format!("armours {plugin}"),
+                Job::Armours { plugin, .. } => format!("armours {plugin}"),
             })
             .collect();
         assert_eq!(shape, ["load 2", "armours A.esp", "render 3", "load 3"]);
+    }
+
+    #[test]
+    fn a_piece_has_the_models_of_each_body() {
+        let (f, m) = (Item::from("meshes/f.nif"), Item::from("meshes/m.nif"));
+        let armour = Piece { female: vec![f.clone()], male: vec![m.clone()] };
+        assert_eq!(armour.items(BodySex::Female), std::slice::from_ref(&f));
+        assert_eq!(armour.items(BodySex::Male), [m]);
+        // A file is what it is on either body.
+        let file = Piece::file(f.clone());
+        assert_eq!(file.items(BodySex::Female), file.items(BodySex::Male));
+    }
+
+    #[test]
+    fn the_body_is_the_characters_until_their_outfit_is_cleared() {
+        let paths = fixture_install("preview_sex_lock");
+        let mut preview = Preview::start(&egui::Context::default());
+        assert!(!preview.locked && preview.sex == BodySex::Female);
+
+        preview.show_outfit(Path::new("not-a-save.ess"), BodySex::Male, false, &paths);
+        assert!(preview.locked && preview.sex == BodySex::Male && preview.body);
+        assert!(preview.notices.is_empty());
+
+        // Pieces from the picker follow the locked body; taking the last one away unlocks it.
+        let piece = Piece { female: vec![Item::from("meshes/f.nif")], male: vec![Item::from("meshes/m.nif")] };
+        preview.items = vec![piece.clone()];
+        assert_eq!(preview.items(), ["meshes/m.nif"]);
+        preview.remove_all(&[piece], &paths);
+        assert!(!preview.locked);
+        assert_eq!(preview.sex, BodySex::Male, "the body stays as it was, but can be changed now");
+
+        // Argonians and Khajiit are drawn as human, and the view says so.
+        preview.show_outfit(Path::new("not-a-save.ess"), BodySex::Female, true, &paths);
+        assert_eq!(preview.notices.len(), 1);
+        preview.reset();
+        assert!(!preview.locked && preview.sex == BodySex::Female);
+    }
+
+    #[test]
+    fn a_load_draws_the_chosen_bodys_skeleton_and_body() {
+        // The fixture install has the female skeleton only: a man's models are drawn unposed
+        // (the report says so), a woman's are posed.
+        let paths = fixture_install("preview_sex_skeleton");
+        let (jobs, replies) = start(10_000);
+        for (id, sex, posed) in [(1, BodySex::Female, true), (2, BodySex::Male, false)] {
+            let request = Request { items: vec![Item::from("meshes/fixture/quad.nif")], body: false, pose: true, sex };
+            jobs.send(Job::Load { id, paths: Box::new(paths.clone()), request, fresh: false }).unwrap();
+            let Reply::Loaded { result: Ok(loaded), .. } = next(&replies) else { panic!() };
+            assert_eq!(loaded.pose.is_some(), posed, "{sex:?}");
+        }
     }
 
     #[test]

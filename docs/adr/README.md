@@ -52,6 +52,7 @@ mechanics of adding one.
 | [0008](0008-a-tab-for-each-copy-of-the-game.md) | A tab for each copy of the game | Accepted |
 | [0009](0009-preview-models-with-the-renderer-in-skyplug-core.md) | Preview models with the renderer in skyplug-core, on a worker of their own | Proposed |
 | [0010](0010-preview-a-characters-outfit-from-the-save.md) | Preview a character's outfit by reading what the save says is worn | Proposed |
+| [0011](0011-draw-either-body-and-let-a-save-choose-it.md) | Draw either body, and let a save's character choose it | Proposed |
 
 ## Decision Relationship
 
@@ -70,6 +71,8 @@ flowchart TD
     B --> I
     I --> J[0010: outfit from the save]
     E --> J
+    I --> K[0011: either body]
+    J --> K
 ```
 
 ## Revisit Triggers
@@ -82,4 +85,5 @@ flowchart TD
 - Switched plugins blocking a tab switch gets in the way → [ADR-0008](0008-a-tab-for-each-copy-of-the-game.md).
 - Orbiting a big scene feels slow, or a model needs the game's own shading → [ADR-0009](0009-preview-models-with-the-renderer-in-skyplug-core.md).
 - The scan for the inventory finds nothing in a save, or male characters need drawing → [ADR-0010](0010-preview-a-characters-outfit-from-the-save.md).
+- Argonian or Khajiit characters need drawing with their own bodies → [ADR-0011](0011-draw-either-body-and-let-a-save-choose-it.md).
 - Plugins need reordering, not just switching, or one backup proves too few → [ADR-0006](0006-switch-plugins-then-apply.md).

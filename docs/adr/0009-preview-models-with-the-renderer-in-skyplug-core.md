@@ -67,7 +67,7 @@ the first versions drew happily that the game would not.
   can't read show as errors and warnings, not crashes.
 - The picker shows what the load order really wears, so a refit (UNP Vanilla Outfits) shows its models
   for vanilla armours. It picks female models for human races; male models, and other races' armatures,
-  aren't offered, and an armour that lists no armature of its own shows "no models".
+  weren't offered (male models are, since [ADR-0011](0011-draw-either-body-and-let-a-save-choose-it.md)), and an armour that lists no armature of its own shows "no models".
 - Two threads read the game's files now. The preview's worker reads the archives' indexes once and keeps
   them until Reload, so it doesn't see a newly added archive until then (a changed loose file is seen
   at once).

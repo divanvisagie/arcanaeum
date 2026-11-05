@@ -38,8 +38,8 @@ isn't drawn. A worn model the renderer can't read is skipped with a warning, not
 
 - A save's outfit is one click, with the same textures, poses and report as any other model.
 - The character isn't drawn, only the outfit on the installed body: no face, hair or skin tint, which
-  the save holds as race and character-creation data, not armour. Male characters and other races are
-  shown on the female body, and the view says so.
+  the save holds as race and character-creation data, not armour. Male characters were first shown on the
+  female body with a note; [ADR-0011](0011-draw-either-body-and-let-a-save-choose-it.md) draws them on a male one.
 - Items made in game (enchanted or renamed copies, FormIDs `FF…`) have no record in a plugin and are
   counted, not shown. Worn weapons and torches carry `Worn` too; they aren't armour and are counted.
 - The scan is a heuristic. An extra data type nobody has seen makes the read fail with "couldn't find the
