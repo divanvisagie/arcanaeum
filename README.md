@@ -20,6 +20,10 @@ Arcanaeum is a Skyrim mod tool for Linux and Windows. It tells you which mods yo
 
 **From a Plugin…** lets you pick armours from any plugin in your load order.
 
+**Hair…** is for hair packs that put hundreds of styles in character creation's one long list. It shows every hair in your load order as a picture, plugin by plugin. Click the ones you want to keep (a tick marks them), filter by name, sex, or hairstyles and beards, then **Apply**. That writes a small patch plugin, `Arcanaeum Hair Picks.esp`, that hides the rest from character creation and switches it on. Nothing is deleted: tick a hair again and apply to bring it back, or tick everything and the patch goes away. It won't apply while Skyrim is running.
+
+![Hair, as pictures to click: the ones with a tick are offered in character creation](docs/screenshot-hair.png)
+
 ![Picking armours from a plugin's records](docs/screenshot-picker.png)
 
 Every plugin list has filters at the top of its columns, and **Copy Report** copies the list.

@@ -492,6 +492,8 @@ pub struct Preview {
     in_flight: Option<ViewParams>,
     /// The armour picker, while its window is open.
     picker: Option<Picker>,
+    /// The hair picker (ADR-0012), which has its own worker.
+    hair: crate::hair::HairPicker,
     /// The save whose outfit is being read.
     dressing: Option<PathBuf>,
     /// What to tell about the models: what an outfit leaves out, or why it couldn't be read.
@@ -534,6 +536,7 @@ impl Preview {
         let (jobs, inbox) = channel();
         let (outbox, replies) = channel();
         let ctx = ctx.clone();
+        let hair = crate::hair::HairPicker::start(&ctx);
         std::thread::spawn(move || run(inbox, outbox, ctx, poll));
         Preview {
             jobs,
@@ -552,6 +555,7 @@ impl Preview {
             drawn: None,
             in_flight: None,
             picker: None,
+            hair,
             dressing: None,
             notices: Vec::new(),
         }
@@ -559,7 +563,12 @@ impl Preview {
 
     /// Anything being read or drawn, for the status bar's spinner.
     pub fn busy(&self) -> bool {
-        self.loading || self.in_flight.is_some() || self.dressing.is_some()
+        self.loading || self.in_flight.is_some() || self.dressing.is_some() || self.hair.busy()
+    }
+
+    /// The hair picker, for opening it and for what it changed.
+    pub fn hair(&mut self) -> &mut crate::hair::HairPicker {
+        &mut self.hair
     }
 
     /// A picture of the current models is on screen.
@@ -803,6 +812,7 @@ impl Preview {
         }
 
         self.picker_ui(ui.ctx(), paths, colours);
+        self.hair.ui(ui.ctx(), paths, colours);
         ui.add_space(6.0);
         ui.heading("Model Preview");
         ui.add_space(4.0);
@@ -837,6 +847,9 @@ impl Preview {
             }
             if ui.button("From a Plugin…").on_hover_text("Pick armours from a plugin's records").clicked() {
                 self.open_picker(paths, false);
+            }
+            if ui.button("Hair…").on_hover_text("Choose which hairs the character creation screen offers").clicked() {
+                self.hair.open(paths);
             }
             changed_body = ui.checkbox(&mut self.body, "Body").on_hover_text("Draw the installed female body under the model, for scale").changed();
             changed_body |= ui

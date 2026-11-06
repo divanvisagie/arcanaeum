@@ -9,6 +9,7 @@ mod app;
 mod config;
 mod features;
 mod game;
+mod hair;
 mod loader;
 mod mod_search;
 mod preview;

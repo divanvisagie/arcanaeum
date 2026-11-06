@@ -602,3 +602,65 @@ fn armours_are_picked_from_a_plugin() {
     click_text(&mut app, &ctx, "Add All Shown");
     assert_eq!(app.preview.items().len(), 2);
 }
+
+/// Hair is picked in its own window: open it, hide a hairstyle, apply (a patch plugin is written and
+/// switched on), then show it again and apply (the patch goes).
+#[test]
+fn hair_is_hidden_and_shown_from_its_window() {
+    let paths = crate::hair::tests::hair_install("app_hair");
+    let ctx = egui::Context::default();
+    let mut app = App::with_context(&ctx, Config::with(Install::default()));
+    settle(&mut app, &ctx);
+    app.game = Some(Ok(paths.clone()));
+    app.selection = Selection::Preview;
+
+    let until = |app: &mut App, text: &str| {
+        let mut screen = String::new();
+        for _ in 0..400 {
+            screen = frame(app, &ctx);
+            if screen.contains(text) {
+                return screen;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        panic!("{text:?} never appeared:\n{screen}");
+    };
+
+    frame(&mut app, &ctx);
+    click_text(&mut app, &ctx, "Hair…");
+    // The plugin with hair is chosen for you; women's hairstyles are what's listed first.
+    let screen = until(&mut app, "1 of 1 shown in game");
+    assert!(screen.contains("FixtureHairs.esp  (3)") && screen.contains("Zod"), "{screen}");
+    assert!(!screen.contains("Zac") && !screen.contains("Stubble"), "men's hair and beards are filtered out:\n{screen}");
+
+    click_text(&mut app, &ctx, "Zod");
+    let screen = until(&mut app, "0 of 1 shown in game");
+    assert!(screen.contains("Apply (1)") && screen.contains("FixtureHairs.esp  (3, 1 hidden)"), "{screen}");
+    // Revert puts it back without writing anything.
+    click_text(&mut app, &ctx, "Revert");
+    until(&mut app, "1 of 1 shown in game");
+    assert!(!paths.data_dir.join(skyplug_core::hair::PATCH_NAME).exists());
+
+    click_text(&mut app, &ctx, "Zod");
+    until(&mut app, "Apply (1)");
+    click_text(&mut app, &ctx, "Apply (1)");
+    until(&mut app, "1 hidden in Arcanaeum Hair Picks.esp");
+    let patch = paths.data_dir.join(skyplug_core::hair::PATCH_NAME);
+    assert_eq!(skyplug_core::hair::hidden_by_patch(&patch).unwrap().len(), 1);
+    assert!(std::fs::read_to_string(&paths.plugins_txt).unwrap().contains("*Arcanaeum Hair Picks.esp"));
+    // The load order shown is read again, so the new plugin is in it.
+    for _ in 0..200 {
+        frame(&mut app, &ctx);
+        if app.setup.as_ref().is_some_and(|s| s.as_ref().is_ok_and(|s| s.statuses.iter().any(|p| p.name == skyplug_core::hair::PATCH_NAME))) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    assert!(app.setup.as_ref().is_some_and(|s| s.as_ref().is_ok_and(|s| s.statuses.iter().any(|p| p.name == skyplug_core::hair::PATCH_NAME))), "the load order was read again");
+
+    click_text(&mut app, &ctx, "Zod");
+    until(&mut app, "Apply (1)");
+    click_text(&mut app, &ctx, "Apply (1)");
+    until(&mut app, "every hair is shown again");
+    assert!(!patch.exists());
+}

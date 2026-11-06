@@ -50,6 +50,10 @@ What the spike showed that the plan didn't know:
 5. Texture slots: `BSShaderTextureSet` gives 0 diffuse, 1 normal, 2 skin/subsurface tint, 4 env,
    5 env mask, 7 specular; paths are lower- or mixed-case, with backslashes.
 
+Update 2026-11-06: alpha properties (test and blend) and `BSDynamicTriShape` (hair; ADR-0012) are done,
+and texture paths without the leading `textures\` folder are looked for under it. What's left of the list
+below is still left.
+
 Not covered by the spike, still to do: `NiTriShape`, `BSSubIndexTriShape`'s extra data,
 `BSEffectShaderProperty`, alpha properties (transparency), `NiSwitchNode`/LOD choice, per-vertex
 colours, `BSDynamicTriShape` (faces/heads), BC7 textures, and BSA reading (the spike used files

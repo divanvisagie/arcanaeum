@@ -53,6 +53,7 @@ mechanics of adding one.
 | [0009](0009-preview-models-with-the-renderer-in-skyplug-core.md) | Preview models with the renderer in skyplug-core, on a worker of their own | Proposed |
 | [0010](0010-preview-a-characters-outfit-from-the-save.md) | Preview a character's outfit by reading what the save says is worn | Proposed |
 | [0011](0011-draw-either-body-and-let-a-save-choose-it.md) | Draw either body, and let a save's character choose it | Proposed |
+| [0012](0012-hide-hairs-with-a-patch-plugin.md) | Choose hair by picture, and hide the rest with a generated patch plugin | Proposed |
 
 ## Decision Relationship
 
@@ -73,6 +74,8 @@ flowchart TD
     E --> J
     I --> K[0011: either body]
     J --> K
+    I --> L[0012: hair picked by picture, patch plugin]
+    F --> L
 ```
 
 ## Revisit Triggers
@@ -86,4 +89,5 @@ flowchart TD
 - Orbiting a big scene feels slow, or a model needs the game's own shading → [ADR-0009](0009-preview-models-with-the-renderer-in-skyplug-core.md).
 - The scan for the inventory finds nothing in a save, or male characters need drawing → [ADR-0010](0010-preview-a-characters-outfit-from-the-save.md).
 - Argonian or Khajiit characters need drawing with their own bodies → [ADR-0011](0011-draw-either-body-and-let-a-save-choose-it.md).
+- A hair texture set (`TNAM`) or tint needs drawing, or a second kind of patch is wanted → [ADR-0012](0012-hide-hairs-with-a-patch-plugin.md).
 - Plugins need reordering, not just switching, or one backup proves too few → [ADR-0006](0006-switch-plugins-then-apply.md).

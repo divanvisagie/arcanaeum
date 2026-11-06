@@ -323,6 +323,12 @@ impl App {
                                 let filter = std::env::var("ARCANAEUM_PICKER_FILTER").unwrap_or_default();
                                 self.preview.show_picker(&plugin.to_string_lossy(), &filter, paths);
                             }
+                            // `ARCANAEUM_HAIR`: a plugin whose hair the hair picker shows.
+                            if let Some(plugin) = std::env::var_os("ARCANAEUM_HAIR") {
+                                self.selection = Selection::Preview;
+                                let filter = std::env::var("ARCANAEUM_HAIR_FILTER").unwrap_or_default();
+                                self.preview.hair().show_plugin(&plugin.to_string_lossy(), &filter, paths);
+                            }
                         }
                     }
                     self.loader.send(Command::ScanFolder(folder.clone()));
@@ -861,6 +867,10 @@ impl App {
             Some(Ok(paths)) => {
                 let colours = self.colours(ui);
                 self.preview.ui(ui, &paths, &colours);
+                // The hair patch is in Plugins.txt now: the load order shown needs reading again.
+                if self.preview.hair().take_plugins_changed() {
+                    self.loader.send(Command::ReadSetup(paths));
+                }
             }
             Some(Err(e)) => {
                 ui.add_space(6.0);
@@ -1279,6 +1289,7 @@ impl App {
                 && (self.preview.is_drawn() || self.preview.picker_ready())
                 && (std::env::var_os("ARCANAEUM_PREVIEW").is_none() && std::env::var_os("ARCANAEUM_OUTFIT").is_none()
                     || self.preview.is_drawn()))
+            || (self.selection == Selection::Preview && self.preview.hair().is_open() && self.preview.hair().is_ready())
             || (self.selection != Selection::Preview
                 && !self.loader.busy()
                 && self.folder.is_some()
