@@ -26,6 +26,10 @@ use crate::table::Colours;
 const THUMB: usize = 112;
 /// Textures for the pictures are decoded at about this size: they're small.
 const THUMB_TEXTURE_SIDE: usize = 256;
+/// The big picture's size, and the texture detail it's drawn with.
+const BIG: usize = 448;
+const BIG_TEXTURE_SIDE: usize = 1024;
+const VIEWS: [(&str, f32); 5] = [("Front", 0.0), ("¾", 30.0), ("Right", 90.0), ("Back", 180.0), ("Left", 270.0)];
 const CARD_W: f32 = THUMB as f32 + 8.0;
 const CARD_H: f32 = THUMB as f32 + 8.0 + 20.0;
 const GAP: f32 = 6.0;
@@ -63,6 +67,8 @@ pub enum Job {
     Load { paths: Box<GamePaths> },
     /// Draw these, in order, instead of anything not yet drawn from an earlier request.
     Thumbs { paths: Box<GamePaths>, wanted: Vec<(FormKey, String)> },
+    /// Draw one hair large, from `camera`; a newer request in the same batch replaces this one.
+    Big { id: u64, paths: Box<GamePaths>, model: String, camera: Camera },
     /// Write the patch so that exactly `hidden` is hidden, and switch it on (or remove it).
     Apply { paths: Box<GamePaths>, hidden: Vec<FormKey> },
 }
@@ -70,6 +76,7 @@ pub enum Job {
 pub enum Reply {
     Loaded(Result<Loaded, String>),
     Thumb { key: FormKey, result: Result<Rgba, String> },
+    Big { id: u64, result: Result<Rgba, String> },
     /// The patch was written: what was done, or why not.
     Applied(Result<String, String>),
 }
@@ -77,6 +84,8 @@ pub enum Reply {
 // ------------------------------------------------------------------ worker
 
 struct Worker {
+    /// The hair drawn large, kept so turning it doesn't read it again.
+    big: Option<(String, Model)>,
     catalog: Option<HairCatalog>,
     resolver: Option<(std::path::PathBuf, AssetResolver)>,
 }
@@ -123,6 +132,20 @@ impl Worker {
         Ok(render::render(&model, &Camera { azimuth: 30.0, elevation: 5.0, zoom: 1.0 }, &options))
     }
 
+    fn big(&mut self, paths: &GamePaths, model: &str, camera: &Camera) -> Result<Rgba, String> {
+        if self.big.as_ref().is_none_or(|(m, _)| m != model) {
+            let resolver = self.resolver(paths)?;
+            let loaded = Model::from_asset(resolver, model, BIG_TEXTURE_SIDE).map_err(|e| format!("{e:#}"))?.ok_or("the game has no such model")?;
+            if loaded.mesh_count() == 0 {
+                return Err(loaded.warnings.first().cloned().unwrap_or_else(|| "nothing it can draw".into()));
+            }
+            self.big = Some((model.to_string(), loaded));
+        }
+        let (_, loaded) = self.big.as_ref().expect("set above");
+        let options = Options { width: BIG, height: BIG, supersample: 2, background: [0, 0, 0, 0], ..Options::default() };
+        Ok(render::render(loaded, camera, &options))
+    }
+
     fn apply(&mut self, paths: &GamePaths, hidden: &[FormKey]) -> Result<String, String> {
         let catalog = self.catalog.as_ref().ok_or("the hair hasn't been read yet")?;
         let patch = paths.data_dir.join(PATCH_NAME);
@@ -134,7 +157,7 @@ impl Worker {
 }
 
 fn run(jobs: Receiver<Job>, replies: Sender<Reply>, ctx: egui::Context) {
-    let mut worker = Worker { catalog: None, resolver: None };
+    let mut worker = Worker { big: None, catalog: None, resolver: None };
     let mut queue: VecDeque<(FormKey, String)> = VecDeque::new();
     let mut paths: Option<GamePaths> = None;
     let send = |reply: Reply| {
@@ -159,7 +182,11 @@ fn run(jobs: Receiver<Job>, replies: Sender<Reply>, ctx: egui::Context) {
                 Err(TryRecvError::Disconnected) => return,
             }
         }
+        // Of several big pictures asked for at once (turning it), only the newest is drawn.
+        let newest_big = batch.iter().rposition(|j| matches!(j, Job::Big { .. }));
+        let batch = batch.into_iter().enumerate().filter(|(i, j)| !matches!(j, Job::Big { .. }) || Some(*i) == newest_big).map(|(_, j)| j);
         for job in batch {
+            let id_of_big = if let Job::Big { id, .. } = &job { Some(*id) } else { None };
             let reply = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match job {
                 Job::Load { paths: p } => {
                     let result = worker.load(&p);
@@ -171,9 +198,16 @@ fn run(jobs: Receiver<Job>, replies: Sender<Reply>, ctx: egui::Context) {
                     paths = Some(*p);
                     None
                 }
+                Job::Big { id, paths: p, model, camera } => {
+                    paths = Some(*p.clone());
+                    Some(Reply::Big { id, result: worker.big(&p, &model, &camera) })
+                }
                 Job::Apply { paths: p, hidden } => Some(Reply::Applied(worker.apply(&p, &hidden))),
             }))
-            .unwrap_or_else(|_| Some(Reply::Applied(Err("reading the hair crashed".into()))));
+            .unwrap_or_else(|_| match id_of_big {
+                Some(id) => Some(Reply::Big { id, result: Err("this model crashed the reader or the renderer".into()) }),
+                None => Some(Reply::Applied(Err("reading the hair crashed".into()))),
+            });
             if let Some(reply) = reply {
                 if !send(reply) {
                     return;
@@ -206,6 +240,20 @@ enum Show {
     All,
 }
 
+/// A hair drawn large, in a window of its own.
+struct Big {
+    key: FormKey,
+    label: String,
+    editor_id: String,
+    model: String,
+    camera: Camera,
+    /// Which request the picture answers; a reply to an older one is dropped.
+    id: u64,
+    picture: Option<egui::TextureHandle>,
+    error: Option<String>,
+    loading: bool,
+}
+
 pub struct HairPicker {
     jobs: Sender<Job>,
     replies: Receiver<Reply>,
@@ -224,6 +272,11 @@ pub struct HairPicker {
     thumbs: HashMap<FormKey, Thumb>,
     /// What the worker was last asked to draw.
     asked: Vec<FormKey>,
+    /// The hair drawn large, once one has been double-clicked, and the last request's number.
+    big: Option<Big>,
+    big_id: u64,
+    /// Screenshot mode: the hair to draw large as soon as the list is read.
+    open_big: Option<String>,
     applying: bool,
     /// What the last Apply did, or why it couldn't.
     status: Option<Result<String, String>>,
@@ -251,6 +304,9 @@ impl HairPicker {
             facial: false,
             thumbs: HashMap::new(),
             asked: Vec::new(),
+            big: None,
+            big_id: 0,
+            open_big: None,
             applying: false,
             status: None,
             plugins_changed: false,
@@ -263,7 +319,7 @@ impl HairPicker {
 
     /// Reading, drawing or writing is going on.
     pub fn busy(&self) -> bool {
-        self.open && (self.loaded.is_none() || self.applying || !self.asked.is_empty())
+        self.open && (self.loaded.is_none() || self.applying || !self.asked.is_empty() || self.big.as_ref().is_some_and(|b| b.loading))
     }
 
     /// Whether `Plugins.txt` was changed since this was last asked; asking clears it.
@@ -278,9 +334,26 @@ impl HairPicker {
         self.filter = filter.to_string();
     }
 
+    /// Screenshot mode: also draw the hair with this name large.
+    pub fn show_big(&mut self, label: &str) {
+        self.open_big = Some(label.to_string());
+    }
+
+    /// The name of the hair shown large, if one is.
+    #[cfg(test)]
+    pub fn big_label(&self) -> Option<String> {
+        self.big.as_ref().map(|b| b.label.clone())
+    }
+
+    /// The large picture has been drawn.
+    #[cfg(test)]
+    pub fn big_drawn(&self) -> bool {
+        self.big.as_ref().is_some_and(|b| b.picture.is_some() && !b.loading)
+    }
+
     /// Whether the chosen plugin's hair is read and every picture asked for has come.
     pub fn is_ready(&self) -> bool {
-        matches!(self.loaded, Some(Ok(_))) && self.asked.is_empty()
+        matches!(self.loaded, Some(Ok(_))) && self.asked.is_empty() && self.open_big.is_none() && !self.big.as_ref().is_some_and(|b| b.loading)
     }
 
     /// Open the window and read the load order.
@@ -289,6 +362,7 @@ impl HairPicker {
         self.loaded = None;
         self.thumbs.clear();
         self.asked.clear();
+        self.big = None;
         self.status = None;
         let _ = self.jobs.send(Job::Load { paths: Box::new(paths.clone()) });
     }
@@ -324,6 +398,22 @@ impl HairPicker {
                     };
                     self.thumbs.insert(key, thumb);
                 }
+                Reply::Big { id, result } => {
+                    if let Some(big) = self.big.as_mut().filter(|b| b.id == id) {
+                        big.loading = false;
+                        match result {
+                            Ok(image) => {
+                                let color = egui::ColorImage::from_rgba_unmultiplied([image.width, image.height], &image.pixels);
+                                match &mut big.picture {
+                                    Some(texture) => texture.set(color, egui::TextureOptions::LINEAR),
+                                    None => big.picture = Some(ctx.load_texture("hair-big", color, egui::TextureOptions::LINEAR)),
+                                }
+                                big.error = None;
+                            }
+                            Err(e) => big.error = Some(e),
+                        }
+                    }
+                }
                 Reply::Applied(result) => {
                     self.applying = false;
                     if result.is_ok() {
@@ -334,6 +424,36 @@ impl HairPicker {
                 }
             }
         }
+    }
+
+    /// Draw `hair` large in its own window.
+    fn open_big(&mut self, hair: &HairRow, paths: &GamePaths) {
+        let camera = Camera { azimuth: 30.0, elevation: 5.0, zoom: 1.0 };
+        self.big = Some(Big {
+            key: hair.key.clone(),
+            label: hair.label.clone(),
+            editor_id: hair.editor_id.clone(),
+            model: hair.model.clone(),
+            camera,
+            id: 0,
+            picture: None,
+            error: None,
+            loading: false,
+        });
+        self.ask_big(paths);
+    }
+
+    /// Ask for the big picture again, as the camera is now.
+    fn ask_big(&mut self, paths: &GamePaths) {
+        self.big_id += 1;
+        let Some(big) = &mut self.big else { return };
+        big.id = self.big_id;
+        if big.model.is_empty() {
+            big.error = Some("it has no model".into());
+            return;
+        }
+        big.loading = true;
+        let _ = self.jobs.send(Job::Big { id: big.id, paths: Box::new(paths.clone()), model: big.model.clone(), camera: big.camera });
     }
 
     /// The hair of the chosen plugin that the filters let through.
@@ -375,6 +495,7 @@ impl HairPicker {
         let mut chosen = None;
         let mut wanted: Vec<(FormKey, String)> = Vec::new();
         let mut toggled: Vec<FormKey> = Vec::new();
+        let mut enlarge: Option<HairRow> = None;
         let (mut set_shown, mut set_hidden, mut apply, mut revert) = (false, false, false, false);
         egui::Window::new("Hair")
             .id(egui::Id::new("hair-picker"))
@@ -473,8 +594,12 @@ impl HairPicker {
                                 if thumb.is_none() && !hair.model.is_empty() {
                                     wanted.push((hair.key.clone(), hair.model.clone()));
                                 }
-                                if card(ui, hair, thumb, hidden, colours) {
+                                let (clicked, double) = card(ui, hair, thumb, hidden, colours);
+                                if clicked {
                                     toggled.push(hair.key.clone());
+                                }
+                                if double {
+                                    enlarge = Some((*hair).clone());
                                 }
                             }
                         });
@@ -494,6 +619,16 @@ impl HairPicker {
         if let Some(name) = chosen {
             self.chosen = Some(name);
         }
+        if let Some(hair) = enlarge {
+            self.open_big(&hair, paths);
+        }
+        if let (Some(label), Some(Ok(loaded))) = (self.open_big.clone(), &self.loaded) {
+            self.open_big = None;
+            if let Some(hair) = loaded.rows.iter().find(|r| r.label == label).cloned() {
+                self.open_big(&hair, paths);
+            }
+        }
+        self.big_ui(ctx, paths, colours);
         for key in toggled {
             if !self.hide.remove(&key) {
                 self.hide.insert(key);
@@ -516,11 +651,70 @@ impl HairPicker {
     }
 }
 
-/// One hair's card: its picture, whether it's shown in game, and its name. True if it was clicked.
-fn card(ui: &mut egui::Ui, hair: &HairRow, thumb: Option<&Thumb>, hidden: bool, colours: &Colours) -> bool {
+impl HairPicker {
+    /// The big picture's window: turn it by dragging or with the view buttons, and tick it.
+    fn big_ui(&mut self, ctx: &egui::Context, paths: &GamePaths, colours: &Colours) {
+        let Some(mut big) = self.big.take() else { return };
+        let mut open = true;
+        let mut ask = false;
+        let mut shown = !self.hide.contains(&big.key);
+        let was_shown = shown;
+        egui::Window::new(&big.label)
+            .id(egui::Id::new("hair-big"))
+            .default_size([BIG as f32 + 24.0, BIG as f32 + 90.0])
+            .default_pos(ctx.content_rect().center() - egui::vec2(BIG as f32 / 2.0, BIG as f32 / 2.0 + 20.0))
+            .collapsible(false)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    for (name, azimuth) in VIEWS {
+                        if ui.button(name).clicked() {
+                            big.camera = Camera { azimuth, elevation: 5.0, zoom: 1.0 };
+                            ask = true;
+                        }
+                    }
+                    ui.separator();
+                    ui.checkbox(&mut shown, "Shown in game").on_hover_text("Offered on the character creation screen after Apply");
+                    if big.loading {
+                        ui.spinner();
+                    }
+                });
+                if let Some(e) = &big.error {
+                    ui.colored_label(colours.missing, e);
+                }
+                if let Some(texture) = &big.picture {
+                    let picture = ui.add(egui::Image::new(egui::load::SizedTexture::new(texture.id(), egui::Vec2::splat(BIG as f32))).sense(egui::Sense::drag()));
+                    if picture.dragged() {
+                        let d = picture.drag_delta();
+                        big.camera.azimuth = (big.camera.azimuth + d.x * 0.5).rem_euclid(360.0);
+                        big.camera.elevation = (big.camera.elevation + d.y * 0.4).clamp(-85.0, 85.0);
+                        ask = true;
+                    }
+                    picture.on_hover_cursor(egui::CursorIcon::Grab);
+                }
+                ui.weak(format!("{}   {}", big.editor_id, big.model));
+            });
+        if shown != was_shown {
+            if shown {
+                self.hide.remove(&big.key);
+            } else {
+                self.hide.insert(big.key.clone());
+            }
+        }
+        self.big = open.then_some(big);
+        if ask {
+            self.ask_big(paths);
+        }
+    }
+}
+
+/// One hair's card: its picture, whether it's shown in game, and its name. Whether it was clicked,
+/// and whether that click was the second of a double-click (which also toggles it, so a
+/// double-click leaves it as it was).
+fn card(ui: &mut egui::Ui, hair: &HairRow, thumb: Option<&Thumb>, hidden: bool, colours: &Colours) -> (bool, bool) {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(CARD_W, CARD_H), egui::Sense::click());
     if !ui.is_rect_visible(rect) {
-        return false;
+        return (false, false);
     }
     let visuals = ui.visuals();
     let fill = if hidden { visuals.faint_bg_color } else { visuals.selection.bg_fill.gamma_multiply(0.35) };
@@ -559,7 +753,9 @@ fn card(ui: &mut egui::Ui, hair: &HairRow, thumb: Option<&Thumb>, hidden: bool, 
     if let Some(Thumb::Failed(why)) = thumb {
         hover.push_str(&format!("\n\n{why}"));
     }
-    response.on_hover_text(hover).clicked()
+    let (clicked, double) = (response.clicked(), response.double_clicked());
+    response.on_hover_text(hover);
+    (clicked, double)
 }
 
 #[cfg(test)]
@@ -614,6 +810,22 @@ pub(crate) mod tests {
         jobs.send(Job::Thumbs { paths: Box::new(paths.clone()), wanted: vec![(l.rows[1].key.clone(), "meshes/fixture/gone.nif".into())] }).unwrap();
         let Reply::Thumb { result: Err(why), .. } = next(&replies) else { panic!("expected a failure") };
         assert!(why.contains("no such model"), "{why}");
+
+        // Drawn large, from where it's asked: the same hair seen from the back is a different picture.
+        let front = Camera { azimuth: 0.0, elevation: 5.0, zoom: 1.0 };
+        let big = |id: u64, camera: Camera| Job::Big { id, paths: Box::new(paths.clone()), model: zod.model.clone(), camera };
+        jobs.send(big(7, front)).unwrap();
+        let Reply::Big { id: 7, result: Ok(a) } = next(&replies) else { panic!("expected a big picture") };
+        assert_eq!((a.width, a.height), (BIG, BIG));
+        // Two asked at once: only the newest is drawn.
+        jobs.send(big(8, front)).unwrap();
+        jobs.send(big(9, Camera { azimuth: 180.0, ..front })).unwrap();
+        let Reply::Big { id, result: Ok(b) } = next(&replies) else { panic!("expected a big picture") };
+        assert!(id == 9 || id == 8, "{id}");
+        if id == 9 {
+            assert!(replies.recv_timeout(std::time::Duration::from_millis(200)).is_err(), "nothing drawn for 8");
+        }
+        assert_eq!((b.width, b.height), (BIG, BIG));
 
         // Hiding writes the patch and switches it on.
         jobs.send(Job::Apply { paths: Box::new(paths.clone()), hidden: vec![zod.key.clone()] }).unwrap();

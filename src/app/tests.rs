@@ -664,3 +664,56 @@ fn hair_is_hidden_and_shown_from_its_window() {
     until(&mut app, "every hair is shown again");
     assert!(!patch.exists());
 }
+
+/// Double-clicking a hair opens it large, in a window of its own, and leaves its tick as it was.
+#[test]
+fn a_hair_opens_large_on_double_click() {
+    let paths = crate::hair::tests::hair_install("app_hair_big");
+    let ctx = egui::Context::default();
+    let mut app = App::with_context(&ctx, Config::with(Install::default()));
+    settle(&mut app, &ctx);
+    app.game = Some(Ok(paths.clone()));
+    app.selection = Selection::Preview;
+    let until = |app: &mut App, ok: &dyn Fn(&mut App, &str) -> bool| {
+        let mut screen = String::new();
+        for _ in 0..400 {
+            screen = frame(app, &ctx);
+            if ok(app, &screen) {
+                return screen;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        panic!("never happened:\n{screen}");
+    };
+
+    frame(&mut app, &ctx);
+    click_text(&mut app, &ctx, "Hair…");
+    until(&mut app, &|_, s| s.contains("1 of 1 shown in game"));
+    assert!(app.preview.hair().big_label().is_none());
+
+    // Two clicks on the card in quick succession are a double-click.
+    let at = text_rect(&frame_with(&mut app, &ctx, vec![]), "Zod").expect("the card is drawn").center();
+    // egui reads a third click within 0.6 s of an earlier one as a triple-click wherever it was:
+    // let the click that opened the window age first (a test frame is 1/60 s).
+    for _ in 0..60 {
+        frame(&mut app, &ctx);
+    }
+    let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+    let _ = frame_with(&mut app, &ctx, vec![egui::Event::PointerMoved(at)]);
+    // Two clicks a few frames apart (egui says double within 0.3 s), each its own frame.
+    for events in [vec![button(true)], vec![button(false)], vec![], vec![], vec![button(true)], vec![button(false)]] {
+        let _ = frame_with(&mut app, &ctx, events);
+    }
+    let screen = until(&mut app, &|a, _| a.preview.hair().big_label().is_some());
+    assert_eq!(app.preview.hair().big_label().as_deref(), Some("Zod"));
+    assert!(screen.contains("Shown in game"), "{screen}");
+    // The picture comes, and the two clicks left the tick as it was.
+    until(&mut app, &|a, _| a.preview.hair().big_drawn());
+    assert!(screen.contains("1 of 1 shown in game"), "{screen}");
+    assert_eq!(app.preview.hair().changes(), 0);
+
+    // Its tick in the big window is the same tick as on the card.
+    click_text(&mut app, &ctx, "Shown in game");
+    until(&mut app, &|_, s| s.contains("0 of 1 shown in game"));
+    assert_eq!(app.preview.hair().changes(), 1);
+}

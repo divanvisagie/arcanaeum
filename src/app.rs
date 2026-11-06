@@ -328,6 +328,9 @@ impl App {
                                 self.selection = Selection::Preview;
                                 let filter = std::env::var("ARCANAEUM_HAIR_FILTER").unwrap_or_default();
                                 self.preview.hair().show_plugin(&plugin.to_string_lossy(), &filter, paths);
+                                if let Ok(label) = std::env::var("ARCANAEUM_HAIR_BIG") {
+                                    self.preview.hair().show_big(&label);
+                                }
                             }
                         }
                     }

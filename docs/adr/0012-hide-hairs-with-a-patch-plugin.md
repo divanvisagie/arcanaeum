@@ -32,7 +32,8 @@ Drawing a hair takes the model reader to a shape it didn't read: every hair in b
 We will add a **Hair** window to the model preview (a "Hair…" button beside "From a Plugin…"): the
 load order's plugins with hair on the left, and each hair as a picture on the right, drawn from its own
 model and textures. Clicking a hair ticks or unticks it ("shown in game"); the window filters by name,
-sex, and hairstyles or beards, and can show or hide everything listed.
+sex, and hairstyles or beards, and can show or hide everything listed. Double-clicking a hair draws it large in a window of its own,
+from any side, at full texture detail; the worker keeps that model so turning it reads nothing again.
 
 **Apply** writes `Arcanaeum Hair Picks.esp`: a light plugin that overrides each unticked `HDPT` record
 with its playable flag cleared, copied record for record from the plugin that wins, with FormIDs
