@@ -15,6 +15,8 @@ use skyplug_core::GamePaths;
 use crate::analysis::{self, Analysis, Kind, Pending, PluginFilter, Row, Setup};
 use crate::config::{Config, Install};
 use crate::game;
+#[cfg(target_os = "linux")]
+use crate::launch;
 use crate::loader::{Characters, Command, Loader, Update};
 use crate::preview::Preview;
 use crate::table::{plugin_table, Colours, SkinColours};
@@ -56,6 +58,9 @@ enum Do {
     RenameTo(String),
     CancelRename,
     Reload,
+    /// Start the game (Linux).
+    #[cfg(target_os = "linux")]
+    Launch(launch::Mode),
     Select(Selection),
     CopyReport,
     /// Switch a plugin on or off, until Apply.
@@ -79,6 +84,8 @@ enum Field {
     Game,
     Prefix,
     Saves,
+    #[cfg(target_os = "linux")]
+    Launcher,
 }
 
 impl Field {
@@ -87,6 +94,8 @@ impl Field {
             Field::Game => "Game folder",
             Field::Prefix => "Wine prefix",
             Field::Saves => "Save folder",
+            #[cfg(target_os = "linux")]
+            Field::Launcher => "Launch command",
         }
     }
 
@@ -95,6 +104,8 @@ impl Field {
             Field::Game => "The folder holding SkyrimSE.exe",
             Field::Prefix => "The folder holding drive_c",
             Field::Saves => "Empty: the game's own",
+            #[cfg(target_os = "linux")]
+            Field::Launcher => "A script taking --vanilla and --launcher; empty: skyrim-gog beside the game folder or on PATH",
         }
     }
 }
@@ -106,6 +117,9 @@ struct Draft {
     game: String,
     prefix: String,
     saves: String,
+    launcher: String,
+    fps_counter: bool,
+    launch_env: String,
     error: Option<String>,
 }
 
@@ -117,6 +131,9 @@ impl Draft {
             game: text(&install.game_folder),
             prefix: text(&install.wine_prefix),
             saves: text(&install.save_folder),
+            launcher: text(&install.launcher),
+            fps_counter: install.fps_counter,
+            launch_env: install.launch_env.clone(),
             error: None,
         }
     }
@@ -126,6 +143,8 @@ impl Draft {
             Field::Game => &mut self.game,
             Field::Prefix => &mut self.prefix,
             Field::Saves => &mut self.saves,
+            #[cfg(target_os = "linux")]
+            Field::Launcher => &mut self.launcher,
         }
     }
 
@@ -136,6 +155,9 @@ impl Draft {
             game_folder: path(&self.game),
             wine_prefix: path(&self.prefix),
             save_folder: path(&self.saves),
+            launcher: path(&self.launcher),
+            fps_counter: self.fps_counter,
+            launch_env: self.launch_env.trim().to_string(),
         }
     }
 }
@@ -479,6 +501,20 @@ impl App {
                 Do::CopyReport,
             );
         });
+        #[cfg(target_os = "linux")]
+        ui.menu_button("Play", |ui| {
+            let ready = launch::launcher(self.config.install()).is_some();
+            for mode in launch::Mode::ALL {
+                let button = ui.add_enabled(ready, egui::Button::new(mode.label()));
+                if button
+                    .on_disabled_hover_text("Set a launch command in Settings")
+                    .clicked()
+                {
+                    actions.push(Do::Launch(mode));
+                    ui.close();
+                }
+            }
+        });
         ui.menu_button("View", |ui| {
             let mut system = !self.custom_frame;
             if ui.checkbox(&mut system, "System Title Bar").changed() {
@@ -638,6 +674,15 @@ impl App {
                 let current = PathBuf::from(draft.field(field).trim());
                 if current.is_dir() {
                     dialog = dialog.set_directory(current);
+                } else if let Some(parent) = current.parent().filter(|p| p.is_dir()) {
+                    dialog = dialog.set_directory(parent);
+                }
+                #[cfg(target_os = "linux")]
+                if field == Field::Launcher {
+                    if let Some(file) = dialog.pick_file() {
+                        *draft.field(field) = file.display().to_string();
+                    }
+                    return;
                 }
                 if let Some(folder) = dialog.pick_folder() {
                     *draft.field(field) = folder.display().to_string();
@@ -656,6 +701,11 @@ impl App {
             }
             Do::SaveSettings => {
                 let Some(draft) = &mut self.settings else { return };
+                #[cfg(target_os = "linux")]
+                if let Err(e) = launch::parse_env(&draft.launch_env) {
+                    draft.error = Some(e);
+                    return;
+                }
                 let install = draft.install();
                 let current = self.config.install();
                 let moved = (&install.game_folder, &install.wine_prefix, &install.save_folder)
@@ -670,6 +720,19 @@ impl App {
                     self.show_install(self.config.shown);
                 } else {
                     self.config.save();
+                }
+            }
+            #[cfg(target_os = "linux")]
+            Do::Launch(mode) => {
+                if game::is_running() {
+                    self.notify(ctx, "Skyrim is already running.");
+                } else if !self.pending.is_empty() {
+                    self.notify(ctx, "Apply or revert the switched plugins before starting the game.");
+                } else {
+                    match launch::start(self.config.install(), mode) {
+                        Ok(()) => self.notify(ctx, format!("Starting {}…", mode.label())),
+                        Err(e) => self.error = Some(e),
+                    }
                 }
             }
             Do::Tab(action) => self.tab(ctx, action),
@@ -1200,6 +1263,8 @@ impl App {
                 fields.push(Field::Prefix);
             }
             fields.push(Field::Saves);
+            #[cfg(target_os = "linux")]
+            fields.push(Field::Launcher);
             // Grid cells shrink to their content, so text fields are sized.
             let field_size = egui::vec2(360.0, ui.spacing().interact_size.y);
             egui::Grid::new("settings_fields")
@@ -1221,6 +1286,20 @@ impl App {
                         ui.end_row();
                     }
                 });
+            #[cfg(target_os = "linux")]
+            {
+                ui.add_space(4.0);
+                ui.checkbox(&mut draft.fps_counter, "Show FPS counter in game")
+                    .on_hover_text("Starts the game with DXVK_HUD=fps");
+                ui.horizontal(|ui| {
+                    ui.label("Game flags");
+                    ui.add_sized(
+                        egui::vec2(360.0, ui.spacing().interact_size.y),
+                        egui::TextEdit::singleline(&mut draft.launch_env)
+                            .hint_text("KEY=VALUE words, e.g. MANGOHUD=1 DXVK_HUD=full"),
+                    );
+                });
+            }
             ui.add_space(4.0);
             if ui
                 .button("Fill In From Steam")

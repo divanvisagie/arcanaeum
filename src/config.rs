@@ -38,6 +38,14 @@ pub struct Install {
     pub wine_prefix: Option<PathBuf>,
     /// Where the saves are read from; the game's own when unset.
     pub save_folder: Option<PathBuf>,
+    /// The command that runs the game, taking `--vanilla` and `--launcher`
+    /// for the game without SKSE and Bethesda's launcher (ADR-0013). Only
+    /// used on Linux, where the game runs through Proton.
+    pub launcher: Option<PathBuf>,
+    /// Draw the frame rate in the game (`DXVK_HUD=fps`). Linux only.
+    pub fps_counter: bool,
+    /// More environment for the game, `KEY=VALUE` words. Linux only.
+    pub launch_env: String,
 }
 
 impl Default for Install {
@@ -135,6 +143,9 @@ impl Install {
             game_folder: None,
             wine_prefix: None,
             save_folder: None,
+            launcher: None,
+            fps_counter: false,
+            launch_env: String::new(),
         }
     }
 
@@ -163,6 +174,9 @@ mod tests {
             game_folder: Some(PathBuf::from("/games/Skyrim Special Edition")),
             wine_prefix: Some(PathBuf::from("/games/prefix")),
             save_folder: Some(PathBuf::from("/saves")),
+            launcher: Some(PathBuf::from("/games/bin/skyrim-gog")),
+            fps_counter: true,
+            launch_env: "MANGOHUD=1".into(),
         });
         config.installs.push(Install::default());
         config.shown = 1;

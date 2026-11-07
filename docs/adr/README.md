@@ -54,6 +54,7 @@ mechanics of adding one.
 | [0010](0010-preview-a-characters-outfit-from-the-save.md) | Preview a character's outfit by reading what the save says is worn | Proposed |
 | [0011](0011-draw-either-body-and-let-a-save-choose-it.md) | Draw either body, and let a save's character choose it | Proposed |
 | [0012](0012-hide-hairs-with-a-patch-plugin.md) | Choose hair by picture, and hide the rest with a generated patch plugin | Proposed |
+| [0013](0013-start-the-game-through-the-installs-launch-command.md) | Start the game through the install's launch command, with an FPS counter flag (Linux) | Accepted |
 
 ## Decision Relationship
 
@@ -90,4 +91,5 @@ flowchart TD
 - The scan for the inventory finds nothing in a save, or male characters need drawing → [ADR-0010](0010-preview-a-characters-outfit-from-the-save.md).
 - Argonian or Khajiit characters need drawing with their own bodies → [ADR-0011](0011-draw-either-body-and-let-a-save-choose-it.md).
 - A hair texture set (`TNAM`) or tint needs drawing, or a second kind of patch is wanted → [ADR-0012](0012-hide-hairs-with-a-patch-plugin.md).
+- Steam's copy or Windows needs a Play menu, or the launch command's arguments need to change → [ADR-0013](0013-start-the-game-through-the-installs-launch-command.md).
 - Plugins need reordering, not just switching, or one backup proves too few → [ADR-0006](0006-switch-plugins-then-apply.md).

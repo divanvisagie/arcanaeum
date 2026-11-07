@@ -10,6 +10,8 @@ mod config;
 mod features;
 mod game;
 mod hair;
+#[cfg(target_os = "linux")]
+mod launch;
 mod loader;
 mod mod_search;
 mod preview;

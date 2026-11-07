@@ -30,6 +30,8 @@ Every plugin list has filters at the top of its columns, and **Copy Report** cop
 
 It works with Skyrim Special Edition from Steam or GOG, on Linux (Proton or Wine) and Windows. Set up each copy in File > Settings: where the game is and, on Linux, its Wine prefix. **Fill In From Steam** does it for you, and so does the first run.
 
+On Linux, a **Launch command** (found for you if it's a `skyrim-gog` beside the game folder or on `PATH`, else set in Settings; a script taking `--vanilla` and `--launcher`; see [ADR-0013](docs/adr/0013-start-the-game-through-the-installs-launch-command.md)) and the **Play** menu starts the game with SKSE, without it, or through Bethesda's launcher. **Show FPS counter** starts it with `DXVK_HUD=fps`, and **Game flags** takes any other `KEY=VALUE` environment.
+
 Each copy of the game gets its own tab at the top; `+` adds one. You can't leave a tab while it has changes you haven't applied.
 
 Under the hood it uses [skyplug-core](https://crates.io/crates/skyplug-core), the library behind [skyplug](https://github.com/divanvisagie/skyplug). It's a [Patina](https://sectorflabs.com/patina/) app, so it follows your light/dark setting and has skins.

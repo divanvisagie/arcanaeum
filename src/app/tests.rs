@@ -124,6 +124,8 @@ fn an_empty_folder_says_so_under_word_menus() {
     for text in [
         "File",
         "Edit",
+        #[cfg(target_os = "linux")]
+        "Play",
         "View",
         "Skins",
         "Skyrim",
@@ -451,6 +453,7 @@ fn fake_gog_install(name: &str) -> (Install, PathBuf) {
         game_folder: Some(game),
         wine_prefix: Some(prefix),
         save_folder: Some(empty_dir(&format!("{name}_saves"))),
+        ..Install::default()
     };
     (install, local.join("Plugins.txt"))
 }
