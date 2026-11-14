@@ -35,8 +35,15 @@ highlight scaled by the normal map's alpha, in linear light. Still to do: the en
 tints, glow, shadows, and checking the normal-map conventions (`BUMP_Y`) against the game.
 
 The same pipelines run offscreen (`gpu::Offscreen`) for the ignored `gpu_shot` test, which renders models from a
-real install to a PNG without a window. skyplug-core stays CPU-only and keeps `skyplug preview`; the hair
-picker and the worker's CPU render job are unchanged for now.
+real install to a PNG without a window. skyplug-core stays CPU-only and keeps `skyplug preview`.
+
+The hair picker's pictures (112 px thumbnails and the 448 px one) are drawn the same way, by the hair worker on a
+device of its own (`HairGpu`), with transparent backgrounds. Measured on 200 of the 1788 hairs here, in a dev build
+(the `hair_thumbs_on_the_gpu_against_the_cpu` ignored test): the GPU draw alone was no faster than the CPU's
+(about 3 ms against 2 ms a thumbnail); what cost time was finding, decompressing and decoding textures, about 12 to
+18 ms a hair, and 200 hairs name 423 textures of which 26 are different. So the worker keeps decoded textures
+between hairs (`skyplug_core::render::TextureCache`) and the renderer keeps uploaded ones (`keeping_textures`):
+200 hairs went from about 22 ms each to about 2.6 ms each. The worker's CPU render job in the preview is unchanged.
 
 ## Consequences
 

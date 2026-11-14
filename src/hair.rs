@@ -17,7 +17,7 @@ use skyplug_core::armour::FormKey;
 use skyplug_core::assets::AssetResolver;
 use skyplug_core::dds::Rgba;
 use skyplug_core::hair::{hidden_by_patch, HairCatalog, PartKind, PATCH_NAME};
-use skyplug_core::render::{self, Camera, Model, Options};
+use skyplug_core::render::{Camera, Model};
 use skyplug_core::GamePaths;
 
 use crate::table::Colours;
@@ -83,15 +83,36 @@ pub enum Reply {
 
 // ------------------------------------------------------------------ worker
 
+/// The worker's own GPU device, with a renderer for the small pictures and one for the big one (each keeps
+/// its target and the scene it last drew, so neither is rebuilt when the other runs).
+struct HairGpu {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    thumbs: crate::gpu::Offscreen,
+    big: crate::gpu::Offscreen,
+}
+
+fn open_gpu() -> Result<HairGpu, String> {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    let adapter = futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).map_err(|e| format!("no GPU to draw with: {e}"))?;
+    let (device, queue) = futures::executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).map_err(|e| format!("the GPU wouldn't open: {e}"))?;
+    let (thumbs, big) = (crate::gpu::Offscreen::new(&device, &queue).keeping_textures(), crate::gpu::Offscreen::new(&device, &queue));
+    Ok(HairGpu { device, queue, thumbs, big })
+}
+
 struct Worker {
-    /// The hair drawn large, kept so turning it doesn't read it again.
-    big: Option<(String, Model)>,
+    /// The hair drawn large, kept (with its scene, already on the GPU) so turning it doesn't read it again.
+    big: Option<(String, crate::gpu::Scene)>,
     catalog: Option<HairCatalog>,
     resolver: Option<(std::path::PathBuf, AssetResolver)>,
+    gpu: Option<HairGpu>,
+    /// Decoded thumbnail-size textures, shared by the hairs that name them (a pack's styles share a handful).
+    textures: skyplug_core::render::TextureCache,
 }
 
 impl Worker {
     fn load(&mut self, paths: &GamePaths) -> Result<Loaded, String> {
+        self.textures.clear(); // the install may have changed
         let catalog = HairCatalog::for_game(paths).map_err(|e| format!("{e:#}"))?;
         let rows = catalog
             .pickable()
@@ -121,29 +142,43 @@ impl Worker {
         Ok(&self.resolver.as_ref().expect("set above").1)
     }
 
-    /// A hair's picture: its model with its textures, from the side that shows the most of it.
+    fn gpu(&mut self) -> Result<&mut HairGpu, String> {
+        if self.gpu.is_none() {
+            self.gpu = Some(open_gpu()?);
+        }
+        Ok(self.gpu.as_mut().expect("set above"))
+    }
+
+    /// A hair's picture: its model with its textures, from the side that shows the most of it, drawn on the GPU.
     fn thumb(&mut self, paths: &GamePaths, model: &str) -> Result<Rgba, String> {
-        let resolver = self.resolver(paths)?;
-        let model = Model::from_asset(resolver, model, THUMB_TEXTURE_SIDE).map_err(|e| format!("{e:#}"))?.ok_or("the game has no such model")?;
+        self.resolver(paths)?;
+        let (_, resolver) = self.resolver.as_ref().expect("set above");
+        let model = Model::from_asset_cached(resolver, model, THUMB_TEXTURE_SIDE, false, &mut self.textures).map_err(|e| format!("{e:#}"))?.ok_or("the game has no such model")?;
         if model.mesh_count() == 0 {
             return Err(model.warnings.first().cloned().unwrap_or_else(|| "nothing it can draw".into()));
         }
-        let options = Options { width: THUMB, height: THUMB, supersample: 2, background: [0, 0, 0, 0], ..Options::default() };
-        Ok(render::render(&model, &Camera { azimuth: 30.0, elevation: 5.0, zoom: 1.0 }, &options))
+        let scene = crate::gpu::Scene::from_model(&model);
+        let g = self.gpu()?;
+        let (w, h, pixels) = g.thumbs.rgba(&g.device, &g.queue, &scene, &Camera { azimuth: 30.0, elevation: 5.0, zoom: 1.0 }, [THUMB as u32; 2]);
+        Ok(Rgba { width: w as usize, height: h as usize, pixels })
     }
 
     fn big(&mut self, paths: &GamePaths, model: &str, camera: &Camera) -> Result<Rgba, String> {
         if self.big.as_ref().is_none_or(|(m, _)| m != model) {
             let resolver = self.resolver(paths)?;
-            let loaded = Model::from_asset(resolver, model, BIG_TEXTURE_SIDE).map_err(|e| format!("{e:#}"))?.ok_or("the game has no such model")?;
+            // Loaded for shading: the big picture shows what the normal map does.
+            let loaded = Model::from_asset_shaded(resolver, model, BIG_TEXTURE_SIDE).map_err(|e| format!("{e:#}"))?.ok_or("the game has no such model")?;
             if loaded.mesh_count() == 0 {
                 return Err(loaded.warnings.first().cloned().unwrap_or_else(|| "nothing it can draw".into()));
             }
-            self.big = Some((model.to_string(), loaded));
+            self.big = Some((model.to_string(), crate::gpu::Scene::from_model(&loaded)));
         }
-        let (_, loaded) = self.big.as_ref().expect("set above");
-        let options = Options { width: BIG, height: BIG, supersample: 2, background: [0, 0, 0, 0], ..Options::default() };
-        Ok(render::render(loaded, camera, &options))
+        // The scene is taken out and put back so the GPU context can be borrowed beside it.
+        let (name, scene) = self.big.take().expect("set above");
+        let drawn = self.gpu().map(|g| g.big.rgba(&g.device, &g.queue, &scene, camera, [BIG as u32; 2]));
+        self.big = Some((name, scene));
+        let (w, h, pixels) = drawn?;
+        Ok(Rgba { width: w as usize, height: h as usize, pixels })
     }
 
     fn apply(&mut self, paths: &GamePaths, hidden: &[FormKey]) -> Result<String, String> {
@@ -157,7 +192,7 @@ impl Worker {
 }
 
 fn run(jobs: Receiver<Job>, replies: Sender<Reply>, ctx: egui::Context) {
-    let mut worker = Worker { big: None, catalog: None, resolver: None };
+    let mut worker = Worker { big: None, catalog: None, resolver: None, gpu: None, textures: Default::default() };
     let mut queue: VecDeque<(FormKey, String)> = VecDeque::new();
     let mut paths: Option<GamePaths> = None;
     let send = |reply: Reply| {
@@ -894,5 +929,87 @@ pub(crate) mod tests {
         assert_eq!(labels(&p), ["Zac"], "any case, and by editor ID too");
         p.filter = "ed4".into();
         assert_eq!(labels(&p), ["Unisex"]);
+    }
+    /// Times the hair pictures on the GPU against the old CPU renderer on a real install, and saves the GPU
+    /// ones as a contact sheet. Reads only. Same variables as `gpu_shot` in preview.rs (`ARCANAEUM_SHOT_DATA`,
+    /// `_PLUGINS`, `_OUT`), plus `ARCANAEUM_SHOT_N` (how many hairs, default 24).
+    #[test]
+    #[ignore = "needs a real install and a GPU"]
+    fn hair_thumbs_on_the_gpu_against_the_cpu() {
+        use skyplug_core::render::{render, Options};
+        use std::time::Instant;
+        let var = |k: &str| std::env::var(k).ok();
+        let (Some(data), Some(plugins), Some(out)) = (var("ARCANAEUM_SHOT_DATA"), var("ARCANAEUM_SHOT_PLUGINS"), var("ARCANAEUM_SHOT_OUT")) else {
+            panic!("set ARCANAEUM_SHOT_DATA, _PLUGINS and _OUT");
+        };
+        let n: usize = var("ARCANAEUM_SHOT_N").and_then(|s| s.parse().ok()).unwrap_or(24);
+        let data = std::path::PathBuf::from(data);
+        let game = data.parent().unwrap().to_path_buf();
+        let paths = GamePaths {
+            data_dir: data,
+            plugins_txt: std::path::PathBuf::from(plugins),
+            ccc_path: game.join("Skyrim.ccc"),
+            saves_dir: game.join("no-saves/Saves"),
+            edition: skyplug_core::steam::Edition::Gog,
+            prefix: None,
+        };
+        let mut worker = Worker { big: None, catalog: None, resolver: None, gpu: None, textures: Default::default() };
+        let loaded = worker.load(&paths).expect("the hair reads");
+        let models: Vec<String> = loaded.rows.iter().filter(|r| !r.model.is_empty()).map(|r| r.model.clone()).take(n).collect();
+        println!("{} hairs in the load order, timing {}", loaded.rows.len(), models.len());
+        // Loading alone, so the drawing can be told apart from it.
+        let started = Instant::now();
+        let resolver = worker.resolver(&paths).unwrap();
+        let mut loaded_models = Vec::new();
+        for m in &models {
+            if let Ok(Some(model)) = Model::from_asset(resolver, m, THUMB_TEXTURE_SIDE) {
+                loaded_models.push(model);
+            }
+        }
+        println!("reading {} models and decoding their textures: {:?} ({:?} each)", loaded_models.len(), started.elapsed(), started.elapsed() / loaded_models.len().max(1) as u32);
+        // How many of the textures are the same file as another hair's.
+        {
+            let all: Vec<&str> = loaded_models.iter().flat_map(|m| m.textures.iter().map(|t| t.path.as_str())).collect();
+            let unique: std::collections::HashSet<&str> = all.iter().copied().collect();
+            println!("  textures named by those models: {} in all, {} different", all.len(), unique.len());
+        }
+        // Where that goes: the model file alone, then the rest (finding and decoding the textures).
+        let started = Instant::now();
+        for m in &models {
+            if let Ok(Some(bytes)) = resolver.read_asset(m) {
+                let _ = skyplug_core::nif::parse(&bytes);
+            }
+        }
+        println!("  of which reading and parsing the NIFs: {:?} ({:?} each)", started.elapsed(), started.elapsed() / models.len().max(1) as u32);
+        let started = Instant::now();
+        let options = Options { width: THUMB, height: THUMB, supersample: 2, background: [0, 0, 0, 0], ..Options::default() };
+        for m in &loaded_models {
+            let _ = render(m, &Camera { azimuth: 30.0, elevation: 5.0, zoom: 1.0 }, &options);
+        }
+        println!("CPU: drawing them: {:?} ({:?} each)", started.elapsed(), started.elapsed() / loaded_models.len().max(1) as u32);
+        // The GPU path as the worker runs it (model read included), after one to open the device.
+        worker.thumb(&paths, &models[0]).expect("the first thumbnail");
+        let started = Instant::now();
+        let mut pics = Vec::new();
+        for m in &models {
+            if let Ok(p) = worker.thumb(&paths, m) {
+                pics.push(p);
+            }
+        }
+        println!("GPU: whole worker path (read + draw) for {}: {:?} ({:?} each)", pics.len(), started.elapsed(), started.elapsed() / pics.len().max(1) as u32);
+        let cols = 6usize;
+        let rows = pics.len().div_ceil(cols);
+        let mut sheet = image::RgbaImage::from_pixel((cols * THUMB) as u32, (rows * THUMB) as u32, image::Rgba([38, 41, 50, 255]));
+        for (i, p) in pics.iter().enumerate() {
+            let img = image::RgbaImage::from_raw(p.width as u32, p.height as u32, p.pixels.clone()).unwrap();
+            let mut tile = image::RgbaImage::from_pixel(p.width as u32, p.height as u32, image::Rgba([38, 41, 50, 255]));
+            for (x, y, px) in img.enumerate_pixels() {
+                let a = px[3] as f32 / 255.0;
+                let bg = tile.get_pixel(x, y).0;
+                tile.put_pixel(x, y, image::Rgba([0, 1, 2].map(|k| (px[k] as f32 * a + bg[k] as f32 * (1.0 - a)) as u8).into_iter().chain([255]).collect::<Vec<_>>().try_into().unwrap()));
+            }
+            image::imageops::replace(&mut sheet, &tile, ((i % cols) * THUMB) as u32, ((i / cols) * THUMB) as u32);
+        }
+        sheet.save(&out).expect("write the PNG");
     }
 }

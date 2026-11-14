@@ -208,6 +208,11 @@ pub struct GpuResources {
     white: wgpu::TextureView,
     uploaded: Option<Uploaded>,
     target: Option<Target>,
+    /// Textures already on the GPU, by the decoded texture they came from (kept alive so an address isn't reused).
+    textures: HashMap<(usize, bool), (Arc<Texture>, wgpu::TextureView)>,
+    /// Keep uploaded textures when the scene changes (a hair picker draws many scenes that share textures);
+    /// otherwise they go with the scene.
+    keep_textures: bool,
 }
 
 fn mip_chain(t: &Texture) -> Vec<(u32, u32, Vec<u8>)> {
@@ -440,23 +445,28 @@ impl GpuResources {
             cache: None,
         });
         let white = upload_texture(device, queue, &Texture::solid([255, 255, 255, 255]), true);
-        GpuResources { globals_buf, globals_bind, part_layout, blit_layout, sampler, blit_sampler, blit_uniform, pipelines, blit, white, uploaded: None, target: None }
+        GpuResources { globals_buf, globals_bind, part_layout, blit_layout, sampler, blit_sampler, blit_uniform, pipelines, blit, white, uploaded: None, target: None, textures: HashMap::new(), keep_textures: false }
     }
 
     fn ensure_scene(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, scene: &Scene) {
         if self.uploaded.as_ref().is_some_and(|u| u.id == scene.id) {
             return;
         }
-        let mut cache: HashMap<(usize, bool), wgpu::TextureView> = HashMap::new();
+        if !self.keep_textures || self.textures.len() > 800 {
+            self.textures.clear();
+        }
+        let white = self.white.clone();
         let mut parts = Vec::new();
         for p in &scene.parts {
+            let cache = &mut self.textures;
             let mut view_of = |t: &Option<Arc<Texture>>, srgb: bool| -> wgpu::TextureView {
                 match t {
                     Some(tex) => cache
                         .entry((Arc::as_ptr(tex) as usize, srgb))
-                        .or_insert_with(|| upload_texture(device, queue, tex, srgb))
+                        .or_insert_with(|| (tex.clone(), upload_texture(device, queue, tex, srgb)))
+                        .1
                         .clone(),
-                    None => self.white.clone(),
+                    None => white.clone(),
                 }
             };
             let diffuse = view_of(&p.diffuse, true);
@@ -615,8 +625,42 @@ impl Offscreen {
         Offscreen { res: GpuResources::new(device, queue, wgpu::TextureFormat::Rgba8Unorm) }
     }
 
+    /// Keep textures on the GPU from one scene to the next (for drawing many scenes that share them).
+    pub fn keeping_textures(mut self) -> Offscreen {
+        self.res.keep_textures = true;
+        self
+    }
+
     /// `scene` from `camera` at `size`, read back: RGBA, straight alpha over `background`.
     pub fn image(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, scene: &Scene, camera: &Camera, size: [u32; 2], background: [u8; 3]) -> (u32, u32, Vec<u8>) {
+        let (w, h, mut px) = self.draw(device, queue, scene, camera, size);
+        for p in px.chunks_exact_mut(4) {
+            let a = p[3] as f32 / 255.0;
+            for k in 0..3 {
+                p[k] = (p[k] as f32 + background[k] as f32 * (1.0 - a)).round().clamp(0.0, 255.0) as u8;
+            }
+            p[3] = 255;
+        }
+        (w, h, px)
+    }
+
+    /// `scene` from `camera` at `size`, read back with its transparency: RGBA, straight alpha (what egui's
+    /// `ColorImage::from_rgba_unmultiplied` takes), nothing behind it.
+    pub fn rgba(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, scene: &Scene, camera: &Camera, size: [u32; 2]) -> (u32, u32, Vec<u8>) {
+        let (w, h, mut px) = self.draw(device, queue, scene, camera, size);
+        for p in px.chunks_exact_mut(4) {
+            let a = p[3] as f32 / 255.0;
+            if a > 0.0 {
+                for c in &mut p[..3] {
+                    *c = (*c as f32 / a).round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+        (w, h, px)
+    }
+
+    /// Render and read back the picture as the target holds it: RGBA, colour already multiplied by alpha.
+    fn draw(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, scene: &Scene, camera: &Camera, size: [u32; 2]) -> (u32, u32, Vec<u8>) {
         let res = &mut self.res;
         res.ensure_scene(device, queue, scene);
         res.ensure_target(device, size);
@@ -638,15 +682,7 @@ impl Offscreen {
         let mapped = slice.get_mapped_range();
         let mut out = Vec::with_capacity((w * h * 4) as usize);
         for y in 0..h {
-            let row = &mapped[(y * padded) as usize..(y * padded + w * 4) as usize];
-            for px in row.chunks_exact(4) {
-                // Premultiplied colour over the background.
-                let a = px[3] as f32 / 255.0;
-                for k in 0..3 {
-                    out.push((px[k] as f32 + background[k] as f32 * (1.0 - a)).round().clamp(0.0, 255.0) as u8);
-                }
-                out.push(255);
-            }
+            out.extend_from_slice(&mapped[(y * padded) as usize..(y * padded + w * 4) as usize]);
         }
         (w, h, out)
     }
