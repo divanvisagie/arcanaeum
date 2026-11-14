@@ -160,6 +160,8 @@ pub struct Loaded {
     /// Problems worth showing: models that couldn't be read, and what the
     /// model reader and the texture loader complained about.
     pub warnings: Vec<String>,
+    /// The model flattened for the GPU renderer ([`crate::gpu`]); the picture draws from this.
+    pub scene: Option<std::sync::Arc<crate::gpu::Scene>>,
 }
 
 pub enum Reply {
@@ -205,14 +207,14 @@ fn read_asset(resolver: &AssetResolver, path: &str, alts: &[AltTexture]) -> Resu
     let Some(bytes) = resolver.read_asset(path).map_err(|e| format!("{e:#}"))? else { return Ok(None) };
     let mut nif = skyplug_core::nif::parse(&bytes).map_err(|e| format!("{e:#}"))?;
     armour::apply_alternate_textures(&mut nif, alts);
-    Ok(Some(Model::load(resolver, &nif, MAX_TEXTURE_SIDE)))
+    Ok(Some(Model::load_shaded(resolver, &nif, MAX_TEXTURE_SIDE)))
 }
 
 /// A model file on disk, with its textures resolved through the game's files.
 fn read_file(resolver: &AssetResolver, path: &Path) -> Result<Model, String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
     let nif = skyplug_core::nif::parse(&bytes).map_err(|e| format!("{e:#}"))?;
-    Ok(Model::load(resolver, &nif, MAX_TEXTURE_SIDE))
+    Ok(Model::load_shaded(resolver, &nif, MAX_TEXTURE_SIDE))
 }
 
 fn modified(path: &Path) -> Option<SystemTime> {
@@ -273,7 +275,7 @@ impl Worker {
         }
         if request.body {
             for asset in request.sex.body() {
-                if let Ok(Some(body)) = Model::from_asset(resolver, asset, MAX_TEXTURE_SIDE) {
+                if let Ok(Some(body)) = Model::from_asset_shaded(resolver, asset, MAX_TEXTURE_SIDE) {
                     model.merge_underlay(body);
                     watched.push(Watch::Asset(asset.to_string()));
                 }
@@ -301,6 +303,7 @@ impl Worker {
             pose,
             textures: model.textures.clone(),
             warnings: problems.into_iter().chain(model.warnings.iter().cloned()).collect(),
+            scene: Some(std::sync::Arc::new(crate::gpu::Scene::from_model(&model))),
         };
         self.current = Some(Current { id, model, watched });
         Ok(loaded)
@@ -573,7 +576,8 @@ impl Preview {
 
     /// A picture of the current models is on screen.
     pub fn is_drawn(&self) -> bool {
-        self.picture.is_some() && self.drawn.is_some() && !self.busy()
+        let on_gpu = matches!(&self.loaded, Some(Ok(l)) if l.scene.is_some()) && !self.loading;
+        on_gpu || (self.picture.is_some() && self.drawn.is_some() && !self.busy())
     }
 
     /// The models being shown.
@@ -1141,6 +1145,17 @@ impl Preview {
             self.camera = Camera::default();
         }
 
+        // Drawn live on the GPU: the scene, the camera and the size on screen go to a paint callback.
+        let gpu_scene = match &self.loaded {
+            Some(Ok(loaded)) if !self.loading => loaded.scene.clone(),
+            _ => None,
+        };
+        if let Some(scene) = gpu_scene {
+            let size_px = [(rect.width() * ppp).round().max(1.0) as u32, (rect.height() * ppp).round().max(1.0) as u32];
+            ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, crate::gpu::Paint { scene, camera: self.camera, size_px }));
+            return;
+        }
+
         // Ask for a picture of the size on screen, in steps of 16 pixels so a
         // window being resized doesn't draw one per pixel.
         let steps = |points: f32| (((points * ppp) / 16.0).round() as usize * 16).clamp(64, 1600);
@@ -1241,6 +1256,73 @@ pub(crate) mod tests {
         replies.recv_timeout(Duration::from_secs(10)).expect("the worker answers")
     }
 
+    /// Renders models from a real install on the GPU, offscreen, and writes a PNG, so the result can be
+    /// looked at without a window. Reads only. Run with the game and where to write, e.g.:
+    /// `ARCANAEUM_SHOT_DATA=".../Skyrim Special Edition/Data" ARCANAEUM_SHOT_PLUGINS=".../Plugins.txt"
+    ///  ARCANAEUM_SHOT_MODELS="meshes/a.nif;meshes/b.nif" ARCANAEUM_SHOT_OUT=out.png
+    ///  cargo test gpu_shot -- --ignored --nocapture`
+    /// Optional: `ARCANAEUM_SHOT_BODY=1`, `ARCANAEUM_SHOT_VIEWS=0,45,90,180`, `ARCANAEUM_SHOT_SIZE=520`,
+    /// `ARCANAEUM_SHOT_ZOOM=1`, `ARCANAEUM_SHOT_ELEVATION=6`.
+    #[test]
+    #[ignore = "needs a real install and a GPU; see the doc comment"]
+    fn gpu_shot() {
+        let var = |k: &str| std::env::var(k).ok();
+        let (Some(data), Some(plugins), Some(models), Some(out)) =
+            (var("ARCANAEUM_SHOT_DATA"), var("ARCANAEUM_SHOT_PLUGINS"), var("ARCANAEUM_SHOT_MODELS"), var("ARCANAEUM_SHOT_OUT"))
+        else {
+            panic!("set ARCANAEUM_SHOT_DATA, _PLUGINS, _MODELS and _OUT");
+        };
+        let data = PathBuf::from(data);
+        let game = data.parent().unwrap().to_path_buf();
+        let paths = GamePaths {
+            data_dir: data,
+            plugins_txt: PathBuf::from(plugins),
+            ccc_path: game.join("Skyrim.ccc"),
+            saves_dir: game.join("no-saves/Saves"),
+            edition: Edition::Gog,
+            prefix: None,
+        };
+        let request = Request {
+            items: models.split(';').map(Item::from).collect(),
+            body: var("ARCANAEUM_SHOT_BODY").is_some(),
+            pose: true,
+            sex: BodySex::Female,
+        };
+        let mut worker = Worker { poll: Duration::from_secs(60), resolver: None, current: None, catalog: None };
+        let loaded = worker.load(1, &paths, &request, true).expect("the models load");
+        for w in &loaded.warnings {
+            println!("warning: {w}");
+        }
+        let scene = loaded.scene.expect("a scene");
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).expect("a GPU adapter");
+        println!("adapter: {:?}", adapter.get_info().name);
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).expect("a device");
+        let size: u32 = var("ARCANAEUM_SHOT_SIZE").and_then(|s| s.parse().ok()).unwrap_or(520);
+        let zoom: f32 = var("ARCANAEUM_SHOT_ZOOM").and_then(|s| s.parse().ok()).unwrap_or(1.0);
+        let elevation: f32 = var("ARCANAEUM_SHOT_ELEVATION").and_then(|s| s.parse().ok()).unwrap_or(6.0);
+        let views: Vec<f32> = var("ARCANAEUM_SHOT_VIEWS").unwrap_or("0,45,90,180".into()).split(',').filter_map(|v| v.parse().ok()).collect();
+        let mut offscreen = crate::gpu::Offscreen::new(&device, &queue);
+        let mut sheet = image::RgbaImage::new(size * views.len() as u32, size);
+        for (i, az) in views.iter().enumerate() {
+            let camera = Camera { azimuth: *az, elevation, zoom };
+            let started = Instant::now();
+            let (w, h, pixels) = offscreen.image(&device, &queue, &scene, &camera, [size, size], [38, 41, 50]);
+            let first = if i == 0 { " (includes uploading the scene)" } else { "" };
+            println!("view {i} ({az} degrees) at {size}px: {:?}{first}", started.elapsed());
+            let img = image::RgbaImage::from_raw(w, h, pixels).unwrap();
+            image::imageops::replace(&mut sheet, &img, i as u32 * size, 0);
+        }
+        // A steadier figure: the same view again, a few times.
+        let camera = Camera { azimuth: 30.0, elevation, zoom };
+        let started = Instant::now();
+        for _ in 0..20 {
+            offscreen.image(&device, &queue, &scene, &camera, [size, size], [38, 41, 50]);
+        }
+        println!("20 more pictures at {size}px, each rendered and read back: {:?} each", started.elapsed() / 20);
+        sheet.save(&out).expect("write the PNG");
+    }
+
     #[test]
     fn loads_a_model_reports_its_textures_and_draws_it() {
         let paths = fixture_install("preview_load");
@@ -1306,15 +1388,23 @@ pub(crate) mod tests {
         let Reply::Loaded { result: Err(e), .. } = next(&replies) else { panic!() };
         assert!(e.contains("no such file"), "{e}");
 
-        // The fixture with its stream version changed to Skyrim LE's 83.
+        // The fixture with its stream version changed to Fallout 4's 130: not a Skyrim model.
         let mut legacy = QUAD.to_vec();
         let nl = legacy.iter().position(|&b| b == b'\n').unwrap();
         let at = nl + 1 + 4 + 1 + 4 + 4;
-        legacy[at..at + 4].copy_from_slice(&83u32.to_le_bytes());
-        std::fs::write(paths.data_dir.join("meshes/fixture/le.nif"), legacy).unwrap();
-        load(&jobs, &paths, 2, &["meshes/fixture/le.nif"]);
+        legacy[at..at + 4].copy_from_slice(&130u32.to_le_bytes());
+        std::fs::write(paths.data_dir.join("meshes/fixture/other.nif"), legacy).unwrap();
+        load(&jobs, &paths, 2, &["meshes/fixture/other.nif"]);
         let Reply::Loaded { result: Err(e), .. } = next(&replies) else { panic!() };
-        assert!(e.contains("Skyrim LE"), "{e}");
+        assert!(e.contains("isn't Skyrim SE's"), "{e}");
+
+        // Skyrim LE's 83 is read, not refused (ADR-0016).
+        let mut le = QUAD.to_vec();
+        le[at..at + 4].copy_from_slice(&83u32.to_le_bytes());
+        std::fs::write(paths.data_dir.join("meshes/fixture/le.nif"), le).unwrap();
+        load(&jobs, &paths, 4, &["meshes/fixture/le.nif"]);
+        let Reply::Loaded { result: Ok(loaded), .. } = next(&replies) else { panic!("an LE model should load") };
+        assert_eq!(loaded.meshes, 1);
 
         // One good model and one bad: the good one still draws, with the bad one listed.
         load(&jobs, &paths, 3, &["meshes/fixture/quad.nif", "meshes/none.nif"]);

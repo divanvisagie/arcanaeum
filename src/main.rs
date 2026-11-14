@@ -9,6 +9,7 @@ mod app;
 mod config;
 mod features;
 mod game;
+mod gpu;
 mod hair;
 #[cfg(target_os = "linux")]
 mod launch;
@@ -45,9 +46,20 @@ fn main() -> eframe::Result {
                 .with_min_inner_size([720.0, 420.0]),
             !config.system_title_bar,
         ),
+        // The model preview is drawn on the GPU (ADR-0015), so the window has to be wgpu's.
+        renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
-    eframe::run_native("arcanaeum", options, Box::new(|cc| Ok(Box::new(app::App::new(cc, config)))))
+    eframe::run_native(
+        "arcanaeum",
+        options,
+        Box::new(|cc| {
+            if let Some(render_state) = &cc.wgpu_render_state {
+                gpu::install(render_state);
+            }
+            Ok(Box::new(app::App::new(cc, config)))
+        }),
+    )
 }
 
 #[cfg(test)]

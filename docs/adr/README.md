@@ -55,6 +55,9 @@ mechanics of adding one.
 | [0011](0011-draw-either-body-and-let-a-save-choose-it.md) | Draw either body, and let a save's character choose it | Proposed |
 | [0012](0012-hide-hairs-with-a-patch-plugin.md) | Choose hair by picture, and hide the rest with a generated patch plugin | Proposed |
 | [0013](0013-start-the-game-through-the-installs-launch-command.md) | Start the game through the install's launch command, with an FPS counter flag (Linux) | Accepted |
+| [0014](0014-show-the-shine-in-the-model-preview.md) | Show a material's shine in the model preview | Proposed |
+| [0015](0015-draw-the-model-preview-on-the-gpu.md) | Draw the model preview on the GPU, the way the game shades it | Proposed |
+| [0016](0016-read-skyrim-le-models-in-the-preview.md) | Read Skyrim LE models in the preview | Proposed |
 
 ## Decision Relationship
 

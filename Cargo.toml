@@ -27,6 +27,9 @@ futures = "0.3.19"
 reqwest = { version = "0.11", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
 skyplug-core = { version = "0.4.0", path = "../skyplug/crates/skyplug-core" }
+wgpu = "29"
+egui-wgpu = "0.35"
+bytemuck = { version = "1", features = ["derive"] }
 image = { version = "0.23", default-features = false, features = [
     "jpeg",
     "png",
@@ -38,5 +41,12 @@ rust-ini = "0.19"
 opt-level = 0
 debug = true
 
+# The model preview is a software renderer; unoptimised it takes about 5x as long per picture
+# (measured through the skyplug CLI: 2.05 s against 0.39 s for four views), so `make run` optimises
+# that crate and the rest stays quick to build.
+[profile.dev.package.skyplug-core]
+opt-level = 3
+
 [dev-dependencies]
+pollster = "0.4"
 resvg = "0.48.1"

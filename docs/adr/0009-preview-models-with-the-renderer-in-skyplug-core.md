@@ -60,7 +60,7 @@ the first versions drew happily that the game would not.
 - Orbiting is as fast as the CPU can draw one picture (tens of milliseconds for an outfit); it draws a
   cheaper picture while dragging and a smoother one when still. If that proves too slow for big
   scenes, a GPU path can replace the drawing without changing the loading.
-- It is a preview, not the game's renderer: no normal, specular or glow maps, no skin or hair tint, no
+- It is a preview, not the game's renderer: no normal-mapped lighting or glow maps (a material's shine is drawn since [ADR-0014](0014-show-the-shine-in-the-model-preview.md)), no skin or hair tint, no
   animation (the pose is the skeleton's rest pose, so fingers are as it holds them), no face meshes. It says
   so rather than pretending.
 - Arcanaeum's build depends on more of skyplug-core, which grows with the formats it reads; models it
