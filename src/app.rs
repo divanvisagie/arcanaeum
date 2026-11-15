@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 
 use patina::frame::{self, TitleBar};
+use patina::menu::{Entry, Menus, Role};
 use patina::skin::{self, Skin};
 use patina::tabs::{self, TabAction, TabStrip};
 use skyplug_core::armour::BodySex;
@@ -42,6 +43,7 @@ enum Selection {
 }
 
 /// What the menus, shortcuts and panels ask for, handled after drawing.
+#[derive(Clone)]
 enum Do {
     OpenFolder,
     /// Open Settings for the shown tab, or close it without saving.
@@ -431,111 +433,86 @@ impl App {
         }
     }
 
+    /// The shortcuts that aren't menu items; the menus own the rest (Patina's ADR-0036).
     fn shortcuts(&self, ctx: &egui::Context, actions: &mut Vec<Do>) {
         use egui::{Key, KeyboardShortcut, Modifiers};
         let pressed = |m, k| ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(m, k)));
-        if pressed(Modifiers::COMMAND | Modifiers::SHIFT, Key::C) {
-            actions.push(Do::CopyReport);
-        }
-        if pressed(Modifiers::COMMAND, Key::S) {
-            actions.push(Do::Apply);
-        }
-        if pressed(Modifiers::COMMAND, Key::O) {
-            actions.push(Do::OpenFolder);
-        }
-        if pressed(Modifiers::COMMAND, Key::Comma) {
-            actions.push(Do::Settings(true));
-        }
-        if pressed(Modifiers::COMMAND, Key::R) || pressed(Modifiers::NONE, Key::F5) {
+        if pressed(Modifiers::NONE, Key::F5) {
             actions.push(Do::Reload);
-        }
-        if pressed(Modifiers::COMMAND, Key::Q) {
-            actions.push(Do::Quit);
         }
     }
 
-    /// Left side of the title bar: word menus (Patina's ADR-0006).
-    fn menus(&self, ui: &mut egui::Ui, actions: &mut Vec<Do>) {
-        fn item(
-            ui: &mut egui::Ui,
-            actions: &mut Vec<Do>,
-            enabled: bool,
-            label: &str,
-            keys: &str,
-            action: Do,
-        ) {
-            if ui
-                .add_enabled(enabled, egui::Button::new(label).shortcut_text(keys))
-                .clicked()
-            {
-                actions.push(action);
-                ui.close();
-            }
-        }
+    /// Left side of the title bar: the word menus, described as data and drawn by Patina
+    /// (ADR-0036), which also handles their shortcuts.
+    fn menus(&self) -> Menus<Do> {
+        use egui::{Key, KeyboardShortcut, Modifiers};
+        let keys = |m, k| KeyboardShortcut::new(m, k);
         let changes = !self.pending.is_empty();
-        ui.menu_button("File", |ui| {
-            item(
-                ui,
-                actions,
-                true,
-                "Open Save Folder…",
-                "Ctrl+O",
-                Do::OpenFolder,
+        let menus = Menus::new()
+            .app_name("Arcanaeum")
+            .menu(
+                "File",
+                [
+                    Entry::item("Open Save Folder…", Do::OpenFolder)
+                        .shortcut(keys(Modifiers::COMMAND, Key::O)),
+                    Entry::item("Settings…", Do::Settings(true))
+                        .shortcut(keys(Modifiers::COMMAND, Key::Comma))
+                        .role(Role::Settings),
+                    Entry::separator(),
+                    Entry::item("Reload", Do::Reload).shortcut(keys(Modifiers::COMMAND, Key::R)),
+                    Entry::separator(),
+                    Entry::item("Quit", Do::Quit)
+                        .shortcut(keys(Modifiers::COMMAND, Key::Q))
+                        .role(Role::Quit),
+                ],
+            )
+            .menu(
+                "Edit",
+                [
+                    Entry::item("Apply Changes", Do::Apply)
+                        .shortcut(keys(Modifiers::COMMAND, Key::S))
+                        .enabled(changes),
+                    Entry::item("Revert Changes", Do::Revert).enabled(changes),
+                    Entry::separator(),
+                    Entry::item("Copy Report", Do::CopyReport)
+                        .shortcut(keys(Modifiers::COMMAND | Modifiers::SHIFT, Key::C))
+                        .enabled(self.report().is_some()),
+                ],
             );
-            item(ui, actions, true, "Settings…", "Ctrl+,", Do::Settings(true));
-            ui.separator();
-            item(ui, actions, true, "Reload", "Ctrl+R", Do::Reload);
-            ui.separator();
-            item(ui, actions, true, "Quit", "Ctrl+Q", Do::Quit);
-        });
-        ui.menu_button("Edit", |ui| {
-            item(ui, actions, changes, "Apply Changes", "Ctrl+S", Do::Apply);
-            item(ui, actions, changes, "Revert Changes", "", Do::Revert);
-            ui.separator();
-            item(
-                ui,
-                actions,
-                self.report().is_some(),
-                "Copy Report",
-                "Ctrl+Shift+C",
-                Do::CopyReport,
-            );
-        });
         #[cfg(target_os = "linux")]
-        ui.menu_button("Play", |ui| {
+        let menus = {
             let ready = launch::launcher(self.config.install()).is_some();
-            for mode in launch::Mode::ALL {
-                let button = ui.add_enabled(ready, egui::Button::new(mode.label()));
-                if button
-                    .on_disabled_hover_text("Set a launch command in Settings")
-                    .clicked()
-                {
-                    actions.push(Do::Launch(mode));
-                    ui.close();
-                }
-            }
-        });
-        ui.menu_button("View", |ui| {
-            let mut system = !self.custom_frame;
-            if ui.checkbox(&mut system, "System Title Bar").changed() {
-                actions.push(Do::SystemTitleBar(system));
-            }
-        });
-        ui.menu_button("Skins", |ui| {
-            let current = self.skin().name.clone();
-            for skin in &self.skins {
-                if ui.radio(skin.name == current, &skin.name).clicked() {
-                    actions.push(Do::SetSkin(skin.name.clone()));
-                }
-            }
-            ui.separator();
-            if ui.button("Reload Skins").clicked() {
-                actions.push(Do::ReloadSkins);
-            }
-            for error in &self.skin_errors {
-                ui.colored_label(ui.visuals().error_fg_color, error);
-            }
-        });
+            menus.menu(
+                "Play",
+                launch::Mode::ALL
+                    .into_iter()
+                    .map(|mode| Entry::item(mode.label(), Do::Launch(mode)).enabled(ready)),
+            )
+        };
+        let current = self.skin().name.clone();
+        let mut skins: Vec<Entry<Do>> = self
+            .skins
+            .iter()
+            .map(|skin| {
+                Entry::item(skin.name.clone(), Do::SetSkin(skin.name.clone()))
+                    .radio(skin.name == current)
+            })
+            .collect();
+        skins.push(Entry::separator());
+        skins.push(Entry::item("Reload Skins", Do::ReloadSkins));
+        // The model has no plain labels, so a skin's error is a disabled item.
+        skins.extend(
+            self.skin_errors
+                .iter()
+                .map(|e| Entry::item(e.clone(), Do::ReloadSkins).enabled(false)),
+        );
+        menus
+            .menu(
+                "View",
+                [Entry::item("System Title Bar", Do::SystemTitleBar(self.custom_frame))
+                    .check(!self.custom_frame)],
+            )
+            .menu("Skins", skins)
     }
 
     /// Right side of the title bar, laid out right to left: the app's
@@ -1441,6 +1418,7 @@ impl App {
         if self.closing == Closing::No && self.settings.is_none() && self.renaming.is_none() {
             tab = tabs::keys(&ctx, titles.len(), shown);
         }
+        let menus = self.menus();
         let header = frame::header_frame(ui.style(), &style, radius);
         egui::Panel::top("header").frame(header).show(ui, |ui| {
             // The bar's full height, padding and all, for the tabs to fill.
@@ -1452,7 +1430,7 @@ impl App {
                 .show(
                     ui,
                     |ui| {
-                        self.menus(ui, &mut actions);
+                        actions.extend(menus.show(ui));
                         let strip = TabStrip::new(&titles, shown, &style)
                             .span(span)
                             .new_hint("New Install (Ctrl+Shift+T)")
@@ -1511,7 +1489,10 @@ fn plural(n: usize, one: &str, many: &str) -> String {
 }
 
 impl eframe::App for App {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        if self.custom_frame {
+            frame::shadow::request(frame);
+        }
         self.draw(ui);
     }
 
