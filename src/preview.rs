@@ -1075,7 +1075,7 @@ impl Preview {
         let mut toggled = false;
         let height = (ui.available_height() * 0.45).max(120.0);
         let (rows, conflicts) = self.rows();
-        let error = ui.visuals().error_fg_color;
+        let (error, warn) = (ui.visuals().error_fg_color, ui.visuals().warn_fg_color);
         egui::ScrollArea::vertical().id_salt("preview-items").max_height(height).auto_shrink([false, true]).show(ui, |ui| {
             for (&(i, n), conflict) in rows.iter().zip(&conflicts) {
                 let item = &self.items[i].items(self.sex)[n];
@@ -1090,8 +1090,9 @@ impl Preview {
                         ui.add_space(ui.spacing().interact_size.y);
                     }
                     let slots = item.slot_numbers();
-                    if let Some(with) = conflict {
-                        ui.label(egui::RichText::new(format!("slot {slots}")).color(error)).on_hover_text(format!("Slot conflict: {with}"));
+                    if let Some((hidden, with)) = conflict {
+                        let (colour, what) = if *hidden { (warn, "Slot conflict, hidden") } else { (error, "Slot conflict") };
+                        ui.label(egui::RichText::new(format!("slot {slots}")).color(colour)).on_hover_text(format!("{what}: {with}"));
                     } else if !slots.is_empty() {
                         ui.weak(format!("slot {slots}"));
                     }
@@ -1138,8 +1139,9 @@ impl Preview {
 
     /// The list's rows, each as a piece and which of its models, in order of the lowest slot they
     /// cover (models with none last); and for each, what it conflicts with: another shown model
-    /// that covers one of the same slots. Hidden models conflict with nothing.
-    fn rows(&self) -> (Vec<(usize, usize)>, Vec<Option<String>>) {
+    /// that covers one of the same slots, and whether it is hidden itself (the conflict is
+    /// the one it would make if shown).
+    fn rows(&self) -> (Vec<(usize, usize)>, Vec<Option<(bool, String)>>) {
         let mut rows: Vec<(usize, usize)> = Vec::new();
         for (i, piece) in self.items.iter().enumerate() {
             rows.extend((0..piece.items(self.sex).len()).map(|n| (i, n)));
@@ -1154,9 +1156,6 @@ impl Preview {
             .iter()
             .map(|r| {
                 let this = item(r);
-                if !shown(this) {
-                    return None;
-                }
                 let others: Vec<String> = rows
                     .iter()
                     .map(item)
@@ -1166,7 +1165,7 @@ impl Preview {
                         format!("{} (slot {shared})", o.name.as_deref().unwrap_or(&o.path))
                     })
                     .collect();
-                (!others.is_empty()).then(|| format!("shares a slot with {}", others.join(", ")))
+                (!others.is_empty()).then(|| (!shown(this), format!("shares a slot with {}", others.join(", "))))
             })
             .collect();
         (rows, conflicts)
@@ -1694,12 +1693,17 @@ pub(crate) mod tests {
         let (rows, conflicts) = preview.rows();
         assert_eq!(rows, [(2, 0), (0, 0), (3, 0), (1, 0)]);
         assert_eq!(conflicts[0], None);
-        assert!(conflicts[1].as_deref().unwrap().contains("meshes/robe.nif (slot 32)"));
-        assert!(conflicts[2].as_deref().unwrap().contains("meshes/body.nif (slot 32)"));
+        assert!(conflicts[1].as_ref().unwrap().1.contains("meshes/robe.nif (slot 32)"));
+        assert!(conflicts[2].as_ref().unwrap().1.contains("meshes/body.nif (slot 32)"));
         assert_eq!(conflicts[3], None);
-        // A hidden model conflicts with nothing, and nothing conflicts with it.
+        // A hidden model is no one's conflict, but is marked as one it would make.
         preview.hidden.insert("meshes/robe.nif".into());
-        assert!(preview.rows().1.iter().all(Option::is_none));
+        let (rows, conflicts) = preview.rows();
+        assert_eq!(rows, [(2, 0), (0, 0), (3, 0), (1, 0)]);
+        assert_eq!(conflicts[0], None);
+        assert_eq!(conflicts[1], None);
+        let (hidden, why) = conflicts[2].clone().unwrap();
+        assert!(hidden && why.contains("meshes/body.nif (slot 32)"));
     }
 
     #[test]
