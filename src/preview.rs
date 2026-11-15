@@ -39,11 +39,13 @@ pub struct Item {
     /// The biped slots of the armature that wears it, as a bit set (bit 0 is slot 30); 0 for
     /// a model that isn't from an armour.
     pub slots: u32,
+    /// The armour's name in the game, for a model that comes from one that has a name.
+    pub name: Option<String>,
 }
 
 impl From<&str> for Item {
     fn from(path: &str) -> Self {
-        Item { path: path.to_string(), alts: Vec::new(), slots: 0 }
+        Item { path: path.to_string(), alts: Vec::new(), slots: 0, name: None }
     }
 }
 
@@ -231,9 +233,9 @@ fn modified(path: &Path) -> Option<SystemTime> {
 }
 
 /// A model set as items: each model with the texture swaps its armature applies.
-fn items_of(set: armour::ModelSet) -> Vec<Item> {
+fn items_of(set: armour::ModelSet, name: Option<&str>) -> Vec<Item> {
     let slots = set.slots.into_iter().chain(std::iter::repeat(0));
-    set.models.into_iter().zip(set.alt_textures).zip(slots).map(|((path, alts), slots)| Item { path, alts, slots }).collect()
+    set.models.into_iter().zip(set.alt_textures).zip(slots).map(|((path, alts), slots)| Item { path, alts, slots, name: name.map(str::to_string) }).collect()
 }
 
 impl Worker {
@@ -333,14 +335,17 @@ impl Worker {
         let armours = catalog.armours_in(plugin, resolver).map_err(|e| format!("{e:#}"))?;
         Ok(armours
             .into_iter()
-            .map(|a| ArmourRow {
+            .map(|a| {
+                let name = a.name.clone().filter(|n| !n.is_empty());
+                ArmourRow {
                 label: a.label().to_string(),
                 slots: a.slot_names().join(", "),
                 changes: a.is_override().then(|| a.defined_in.clone()),
                 problems: resolver.map(|r| a.visibility_problems(sex, r)).unwrap_or_default(),
                 editor_id: a.editor_id,
-                female: items_of(a.female),
-                male: items_of(a.male),
+                female: items_of(a.female, name.as_deref()),
+                male: items_of(a.male, name.as_deref()),
+                }
             })
             .collect())
     }
@@ -367,11 +372,12 @@ impl Worker {
         let mut items: Vec<Item> = Vec::new();
         for a in armours {
             let label = a.label().to_string();
+            let name = a.name.clone().filter(|n| !n.is_empty());
             let set = if sex == BodySex::Male { a.male } else { a.female };
             if set.models.is_empty() {
                 notes.push(format!("{label} has no model to show"));
             }
-            for item in items_of(set) {
+            for item in items_of(set, name.as_deref()) {
                 if !items.contains(&item) {
                     items.push(item);
                 }
@@ -1062,29 +1068,43 @@ impl Preview {
         egui::ScrollArea::vertical().id_salt("preview-items").max_height(height).auto_shrink([false, true]).show(ui, |ui| {
             for (i, piece) in self.items.iter().enumerate() {
                 for (n, item) in piece.items(self.sex).iter().enumerate() {
-                    ui.horizontal(|ui| {
-                        let mut shown = !self.hidden.contains(&item.path);
-                        if ui.checkbox(&mut shown, "").on_hover_text(if shown { "Hide" } else { "Show" }).changed() {
-                            if shown {
-                                self.hidden.remove(&item.path);
-                            } else {
-                                self.hidden.insert(item.path.clone());
+                    // The remove button and the slots hold the right edge; the names truncate.
+                    let row = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+                    ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if n == 0 {
+                            if ui.small_button("×").on_hover_text("Remove from the list").clicked() {
+                                remove = Some(i);
                             }
-                            toggled = true;
+                        } else {
+                            ui.add_space(ui.spacing().interact_size.y);
                         }
-                        let name = egui::RichText::new(item.label());
-                        ui.label(if shown { name } else { name.weak() }).on_hover_text(&item.path);
                         let slots = item.slot_numbers();
                         if !slots.is_empty() {
                             ui.weak(format!("slot {slots}"));
                         }
-                        if n == 0 {
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.small_button("×").on_hover_text("Remove from the list").clicked() {
-                                    remove = Some(i);
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            let mut shown = !self.hidden.contains(&item.path);
+                            if ui.checkbox(&mut shown, "").on_hover_text(if shown { "Hide" } else { "Show" }).changed() {
+                                if shown {
+                                    self.hidden.remove(&item.path);
+                                } else {
+                                    self.hidden.insert(item.path.clone());
                                 }
-                            });
-                        }
+                                toggled = true;
+                            }
+                            let file = egui::RichText::new(item.label());
+                            let tip = &item.path;
+                            match &item.name {
+                                Some(name) => {
+                                    let name = egui::RichText::new(name);
+                                    ui.label(if shown { name } else { name.weak() }).on_hover_text(tip);
+                                    ui.add(egui::Label::new(file.weak()).truncate());
+                                }
+                                None => {
+                                    ui.add(egui::Label::new(if shown { file } else { file.weak() }).truncate()).on_hover_text(tip);
+                                }
+                            }
+                        });
                     });
                 }
             }
@@ -1552,8 +1572,8 @@ pub(crate) mod tests {
                 label: "Fixture Cuirass".into(),
                 editor_id: "FixtureCuirass".into(),
                 slots: "Body".into(),
-                female: vec![Item::from("meshes/fixture/quad.nif")],
-                male: vec![Item::from("meshes/fixture/quad.nif")],
+                female: vec![Item { name: Some("Fixture Cuirass".into()), ..Item::from("meshes/fixture/quad.nif") }],
+                male: vec![Item { name: Some("Fixture Cuirass".into()), ..Item::from("meshes/fixture/quad.nif") }],
                 changes: None,
                 problems: vec![]
             }
