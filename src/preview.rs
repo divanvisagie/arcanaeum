@@ -271,7 +271,9 @@ impl Worker {
         let mut model = Model::default();
         let mut problems = Vec::new();
         let mut watched = Vec::new();
-        for item in &request.items {
+        // For each mesh, the index of the item it came from, so the picture can leave an item out.
+        let mut groups: Vec<usize> = Vec::new();
+        for (index, item) in request.items.iter().enumerate() {
             let on_disk = Path::new(&item.path).is_file();
             let loaded = if on_disk {
                 read_file(resolver, Path::new(&item.path)).map(Some)
@@ -279,7 +281,10 @@ impl Worker {
                 read_asset(resolver, &item.path, &item.alts)
             };
             match loaded {
-                Ok(Some(m)) => model.merge(m),
+                Ok(Some(m)) => {
+                    model.merge(m);
+                    groups.resize(model.mesh_count(), index);
+                }
                 Ok(None) => problems.push(format!("{}: the game has no such file", item.path)),
                 Err(e) => problems.push(format!("{}: {e}", item.path)),
             }
@@ -315,7 +320,7 @@ impl Worker {
             pose,
             textures: model.textures.clone(),
             warnings: problems.into_iter().chain(model.warnings.iter().cloned()).collect(),
-            scene: Some(std::sync::Arc::new(crate::gpu::Scene::from_model(&model))),
+            scene: Some(std::sync::Arc::new(crate::gpu::Scene::from_model_grouped(&model, &groups))),
         };
         self.current = Some(Current { id, model, watched });
         Ok(loaded)
@@ -735,7 +740,12 @@ impl Preview {
 
     /// The models to draw: each piece's, on the chosen body.
     fn models(&self) -> Vec<Item> {
-        self.items.iter().flat_map(|p| p.items(self.sex).iter()).filter(|i| !self.hidden.contains(&i.path)).cloned().collect()
+        self.items.iter().flat_map(|p| p.items(self.sex).iter().cloned()).collect()
+    }
+
+    /// Which of `models()` are hidden: their positions, which the scene's meshes are tagged with.
+    fn hidden_groups(&self) -> Vec<usize> {
+        self.models().iter().enumerate().filter(|(_, m)| self.hidden.contains(&m.path)).map(|(i, _)| i).collect()
     }
 
     fn load(&mut self, paths: &GamePaths, fresh: bool) {
@@ -743,8 +753,7 @@ impl Preview {
         self.loading = true;
         self.in_flight = None;
         self.drawn = None;
-        // Nothing to draw: no models, or all hidden with no body to show instead.
-        if self.items.is_empty() || (!self.body && self.models().is_empty()) {
+        if self.items.is_empty() {
             self.loading = false;
             self.loaded = None;
             self.picture = None;
@@ -1119,7 +1128,8 @@ impl Preview {
             self.unlock_if_empty();
             self.load(paths, false);
         } else if toggled {
-            self.load(paths, false);
+            // Nothing to read again: the next frame leaves the item out.
+            ui.ctx().request_repaint();
         }
     }
 
@@ -1226,7 +1236,7 @@ impl Preview {
         };
         if let Some(scene) = gpu_scene {
             let size_px = [(rect.width() * ppp).round().max(1.0) as u32, (rect.height() * ppp).round().max(1.0) as u32];
-            ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, crate::gpu::Paint { scene, camera: self.camera, size_px }));
+            ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, crate::gpu::Paint { scene, camera: self.camera, hidden: self.hidden_groups(), size_px }));
             return;
         }
 
@@ -1619,14 +1629,15 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_hidden_item_stays_in_the_list_but_leaves_the_picture() {
+    fn a_hidden_item_is_marked_for_the_picture_to_skip() {
         let ctx = egui::Context::default();
         let mut preview = Preview::start(&ctx);
         let (a, b) = (Item::from("meshes/a.nif"), Item::from("meshes/b.nif"));
         preview.items = vec![Piece::file(a), Piece::file(b)];
         preview.hidden.insert("meshes/a.nif".into());
         assert_eq!(preview.items.len(), 2);
-        assert_eq!(preview.models().len(), 1);
+        assert_eq!(preview.models().len(), 2);
+        assert_eq!(preview.hidden_groups(), [0]);
     }
 
     #[test]

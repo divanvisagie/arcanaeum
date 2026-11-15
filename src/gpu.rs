@@ -67,7 +67,11 @@ struct ScenePart {
     blend: bool,
     double_sided: bool,
     centroid: [f32; 3],
+    group: usize,
 }
+
+/// The group of a mesh that isn't in one: the body.
+pub const NO_GROUP: usize = usize::MAX;
 
 /// A model flattened for drawing. Built off the UI thread; uploaded to the GPU on first draw.
 pub struct Scene {
@@ -114,9 +118,15 @@ fn smooth_normals(positions: &[[f32; 3]], triangles: &[[u16; 3]]) -> Vec<[f32; 3
 impl Scene {
     /// Flatten `model` (already posed). Meshes with no triangles are dropped.
     pub fn from_model(model: &Model) -> Scene {
+        Self::from_model_grouped(model, &[])
+    }
+
+    /// As [`Self::from_model`], with each mesh of `model` tagged with the group it belongs to
+    /// (`groups[i]` for mesh `i`; `NO_GROUP` where it gives none), so a draw can skip groups.
+    pub fn from_model_grouped(model: &Model, groups: &[usize]) -> Scene {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let mut parts = Vec::new();
-        for p in model.parts() {
+        for (index, p) in model.parts().into_iter().enumerate() {
             let m = p.mesh;
             if m.triangles.is_empty() || m.positions.is_empty() {
                 continue;
@@ -158,6 +168,7 @@ impl Scene {
                 blend,
                 double_sided: m.double_sided,
                 centroid,
+                group: groups.get(index).copied().unwrap_or(NO_GROUP),
             });
         }
         let (lo, hi) = model.bounds().unwrap_or(([-1.0; 3], [1.0; 3]));
@@ -178,6 +189,7 @@ struct GpuPart {
     blend: bool,
     double_sided: bool,
     centroid: [f32; 3],
+    group: usize,
 }
 
 struct Uploaded {
@@ -490,6 +502,7 @@ impl GpuResources {
                 blend: p.blend,
                 double_sided: p.double_sided,
                 centroid: p.centroid,
+                group: p.group,
             });
         }
         self.uploaded = Some(Uploaded { id: scene.id, parts });
@@ -533,7 +546,7 @@ impl GpuResources {
     }
 
     /// Draw the uploaded scene into the target (multisampled, resolved into the picture).
-    fn render(&self, encoder: &mut wgpu::CommandEncoder, queue: &wgpu::Queue, scene: &Scene, camera: &Camera) {
+    fn render(&self, encoder: &mut wgpu::CommandEncoder, queue: &wgpu::Queue, scene: &Scene, camera: &Camera, hidden: &[usize]) {
         let (Some(up), Some(target)) = (&self.uploaded, &self.target) else { return };
         queue.write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&Self::globals(scene, camera, target.size)));
         let resolve_view = target.resolve.create_view(&wgpu::TextureViewDescriptor::default());
@@ -555,8 +568,8 @@ impl GpuResources {
             multiview_mask: None,
         });
         pass.set_bind_group(0, &self.globals_bind, &[]);
-        let mut opaque: Vec<&GpuPart> = up.parts.iter().filter(|p| !p.blend).collect();
-        let mut blended: Vec<&GpuPart> = up.parts.iter().filter(|p| p.blend).collect();
+        let mut opaque: Vec<&GpuPart> = up.parts.iter().filter(|p| !p.blend && !hidden.contains(&p.group)).collect();
+        let mut blended: Vec<&GpuPart> = up.parts.iter().filter(|p| p.blend && !hidden.contains(&p.group)).collect();
         let t = Self::globals(scene, camera, target.size).toward;
         let depth = |p: &GpuPart| (p.centroid[0] - scene.center[0]) * t[0] + (p.centroid[1] - scene.center[1]) * t[1] + (p.centroid[2] - scene.center[2]) * t[2];
         blended.sort_by(|a, b| depth(a).total_cmp(&depth(b)));
@@ -581,6 +594,8 @@ pub fn install(render_state: &egui_wgpu::RenderState) {
 pub struct Paint {
     pub scene: Arc<Scene>,
     pub camera: Camera,
+    /// Groups of meshes not to draw.
+    pub hidden: Vec<usize>,
     /// The size of the rect on screen, in physical pixels.
     pub size_px: [u32; 2],
 }
@@ -597,7 +612,7 @@ impl CallbackTrait for Paint {
         if let Some(res) = resources.get_mut::<GpuResources>() {
             res.ensure_scene(device, queue, &self.scene);
             res.ensure_target(device, self.size_px);
-            res.render(encoder, queue, &self.scene, &self.camera);
+            res.render(encoder, queue, &self.scene, &self.camera, &self.hidden);
         }
         Vec::new()
     }
@@ -666,7 +681,7 @@ impl Offscreen {
         res.ensure_target(device, size);
         let target_size = res.target.as_ref().expect("made above").size;
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("offscreen preview") });
-        res.render(&mut encoder, queue, scene, camera);
+        res.render(&mut encoder, queue, scene, camera, &[]);
         let (w, h) = (target_size[0], target_size[1]);
         let padded = (w * 4).div_ceil(256) * 256;
         let buffer = device.create_buffer(&wgpu::BufferDescriptor { label: Some("readback"), size: (padded * h) as u64, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false });
