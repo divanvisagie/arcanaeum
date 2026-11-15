@@ -1074,48 +1074,51 @@ impl Preview {
         let mut remove = None;
         let mut toggled = false;
         let height = (ui.available_height() * 0.45).max(120.0);
+        let (rows, conflicts) = self.rows();
+        let error = ui.visuals().error_fg_color;
         egui::ScrollArea::vertical().id_salt("preview-items").max_height(height).auto_shrink([false, true]).show(ui, |ui| {
-            for (i, piece) in self.items.iter().enumerate() {
-                for (n, item) in piece.items(self.sex).iter().enumerate() {
-                    // The remove button and the slots hold the right edge; the names truncate.
-                    let row = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
-                    ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if n == 0 {
-                            if ui.small_button("×").on_hover_text("Remove from the list").clicked() {
-                                remove = Some(i);
-                            }
-                        } else {
-                            ui.add_space(ui.spacing().interact_size.y);
+            for (&(i, n), conflict) in rows.iter().zip(&conflicts) {
+                let item = &self.items[i].items(self.sex)[n];
+                // The remove button and the slots hold the right edge; the names truncate.
+                let row = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+                ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if n == 0 {
+                        if ui.small_button("×").on_hover_text("Remove from the list").clicked() {
+                            remove = Some(i);
                         }
-                        let slots = item.slot_numbers();
-                        if !slots.is_empty() {
-                            ui.weak(format!("slot {slots}"));
+                    } else {
+                        ui.add_space(ui.spacing().interact_size.y);
+                    }
+                    let slots = item.slot_numbers();
+                    if let Some(with) = conflict {
+                        ui.label(egui::RichText::new(format!("slot {slots}")).color(error)).on_hover_text(format!("Slot conflict: {with}"));
+                    } else if !slots.is_empty() {
+                        ui.weak(format!("slot {slots}"));
+                    }
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        let mut shown = !self.hidden.contains(&item.path);
+                        if ui.checkbox(&mut shown, "").on_hover_text(if shown { "Hide" } else { "Show" }).changed() {
+                            if shown {
+                                self.hidden.remove(&item.path);
+                            } else {
+                                self.hidden.insert(item.path.clone());
+                            }
+                            toggled = true;
                         }
-                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            let mut shown = !self.hidden.contains(&item.path);
-                            if ui.checkbox(&mut shown, "").on_hover_text(if shown { "Hide" } else { "Show" }).changed() {
-                                if shown {
-                                    self.hidden.remove(&item.path);
-                                } else {
-                                    self.hidden.insert(item.path.clone());
-                                }
-                                toggled = true;
+                        let file = egui::RichText::new(item.label());
+                        let tip = &item.path;
+                        match &item.name {
+                            Some(name) => {
+                                let name = egui::RichText::new(name);
+                                ui.label(if shown { name } else { name.weak() }).on_hover_text(tip);
+                                ui.add(egui::Label::new(file.weak()).truncate());
                             }
-                            let file = egui::RichText::new(item.label());
-                            let tip = &item.path;
-                            match &item.name {
-                                Some(name) => {
-                                    let name = egui::RichText::new(name);
-                                    ui.label(if shown { name } else { name.weak() }).on_hover_text(tip);
-                                    ui.add(egui::Label::new(file.weak()).truncate());
-                                }
-                                None => {
-                                    ui.add(egui::Label::new(if shown { file } else { file.weak() }).truncate()).on_hover_text(tip);
-                                }
+                            None => {
+                                ui.add(egui::Label::new(if shown { file } else { file.weak() }).truncate()).on_hover_text(tip);
                             }
-                        });
+                        }
                     });
-                }
+                });
             }
         });
         if let Some(i) = remove {
@@ -1131,6 +1134,42 @@ impl Preview {
             // Nothing to read again: the next frame leaves the item out.
             ui.ctx().request_repaint();
         }
+    }
+
+    /// The list's rows, each as a piece and which of its models, in order of the lowest slot they
+    /// cover (models with none last); and for each, what it conflicts with: another shown model
+    /// that covers one of the same slots. Hidden models conflict with nothing.
+    fn rows(&self) -> (Vec<(usize, usize)>, Vec<Option<String>>) {
+        let mut rows: Vec<(usize, usize)> = Vec::new();
+        for (i, piece) in self.items.iter().enumerate() {
+            rows.extend((0..piece.items(self.sex).len()).map(|n| (i, n)));
+        }
+        let item = |&(i, n): &(usize, usize)| &self.items[i].items(self.sex)[n];
+        rows.sort_by_key(|r| match item(r).slots {
+            0 => u32::MAX,
+            mask => mask.trailing_zeros(),
+        });
+        let shown = |it: &Item| !self.hidden.contains(&it.path);
+        let conflicts = rows
+            .iter()
+            .map(|r| {
+                let this = item(r);
+                if !shown(this) {
+                    return None;
+                }
+                let others: Vec<String> = rows
+                    .iter()
+                    .map(item)
+                    .filter(|o| !std::ptr::eq(*o, this) && shown(o) && o.slots & this.slots != 0)
+                    .map(|o| {
+                        let shared = (0..32).filter(|b| o.slots & this.slots & (1 << b) != 0).map(|b| (30 + b).to_string()).collect::<Vec<_>>().join(", ");
+                        format!("{} (slot {shared})", o.name.as_deref().unwrap_or(&o.path))
+                    })
+                    .collect();
+                (!others.is_empty()).then(|| format!("shares a slot with {}", others.join(", ")))
+            })
+            .collect();
+        (rows, conflicts)
     }
 
     fn report_ui(&self, ui: &mut egui::Ui, colours: &Colours) {
@@ -1638,6 +1677,29 @@ pub(crate) mod tests {
         assert_eq!(preview.items.len(), 2);
         assert_eq!(preview.models().len(), 2);
         assert_eq!(preview.hidden_groups(), [0]);
+    }
+
+    #[test]
+    fn items_are_ordered_by_slot_and_a_shared_slot_is_a_conflict() {
+        let ctx = egui::Context::default();
+        let mut preview = Preview::start(&ctx);
+        let at = |path: &str, slots: u32| Item { slots, ..Item::from(path) };
+        // Slots 32 (bit 2), 31 (bit 1) and 32 and 33 (bits 2, 3), and one with no slot.
+        preview.items = vec![
+            Piece::file(at("meshes/body.nif", 1 << 2)),
+            Piece::file(at("meshes/file.nif", 0)),
+            Piece::file(at("meshes/hair.nif", 1 << 1)),
+            Piece::file(at("meshes/robe.nif", (1 << 2) | (1 << 3))),
+        ];
+        let (rows, conflicts) = preview.rows();
+        assert_eq!(rows, [(2, 0), (0, 0), (3, 0), (1, 0)]);
+        assert_eq!(conflicts[0], None);
+        assert!(conflicts[1].as_deref().unwrap().contains("meshes/robe.nif (slot 32)"));
+        assert!(conflicts[2].as_deref().unwrap().contains("meshes/body.nif (slot 32)"));
+        assert_eq!(conflicts[3], None);
+        // A hidden model conflicts with nothing, and nothing conflicts with it.
+        preview.hidden.insert("meshes/robe.nif".into());
+        assert!(preview.rows().1.iter().all(Option::is_none));
     }
 
     #[test]
