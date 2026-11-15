@@ -8,6 +8,7 @@
 //! uses, and says when the file the game would use for one of them changes,
 //! so a recoloured texture shows up as it is saved.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, SystemTime};
@@ -35,11 +36,14 @@ const MAX_TEXTURE_SIDE: usize = 1024;
 pub struct Item {
     pub path: String,
     pub alts: Vec<AltTexture>,
+    /// The biped slots of the armature that wears it, as a bit set (bit 0 is slot 30); 0 for
+    /// a model that isn't from an armour.
+    pub slots: u32,
 }
 
 impl From<&str> for Item {
     fn from(path: &str) -> Self {
-        Item { path: path.to_string(), alts: Vec::new() }
+        Item { path: path.to_string(), alts: Vec::new(), slots: 0 }
     }
 }
 
@@ -48,6 +52,11 @@ impl Item {
     fn label(&self) -> String {
         let name = self.path.rsplit(['/', '\\']).next().unwrap_or(&self.path);
         if self.alts.is_empty() { name.to_string() } else { format!("{name} (alt textures)") }
+    }
+
+    /// The biped slot numbers it covers, "32, 33", or nothing for a model without any.
+    fn slot_numbers(&self) -> String {
+        (0..32).filter(|b| self.slots & (1 << b) != 0).map(|b| (30 + b).to_string()).collect::<Vec<_>>().join(", ")
     }
 }
 
@@ -223,7 +232,8 @@ fn modified(path: &Path) -> Option<SystemTime> {
 
 /// A model set as items: each model with the texture swaps its armature applies.
 fn items_of(set: armour::ModelSet) -> Vec<Item> {
-    set.models.into_iter().zip(set.alt_textures).map(|(path, alts)| Item { path, alts }).collect()
+    let slots = set.slots.into_iter().chain(std::iter::repeat(0));
+    set.models.into_iter().zip(set.alt_textures).zip(slots).map(|((path, alts), slots)| Item { path, alts, slots }).collect()
 }
 
 impl Worker {
@@ -475,6 +485,8 @@ pub struct Preview {
     jobs: Sender<Job>,
     replies: Receiver<Reply>,
     items: Vec<Piece>,
+    /// Models hidden from the picture but kept in the list, by path.
+    hidden: HashSet<String>,
     body: bool,
     /// Whose body, models and skeleton are drawn.
     sex: BodySex,
@@ -545,6 +557,7 @@ impl Preview {
             jobs,
             replies,
             items: Vec::new(),
+            hidden: HashSet::new(),
             body: false,
             sex: BodySex::Female,
             locked: false,
@@ -595,6 +608,7 @@ impl Preview {
     /// Start over, for another copy of the game.
     pub fn reset(&mut self) {
         self.items.clear();
+        self.hidden.clear();
         self.input.clear();
         self.body = false;
         self.sex = BodySex::Female;
@@ -614,6 +628,7 @@ impl Preview {
 
     /// Set what to show, for screenshot mode.
     pub fn show(&mut self, items: Vec<String>, body: bool, paths: &GamePaths) {
+        self.hidden.clear();
         self.items = items.iter().map(|i| Piece::file(Item::from(i.as_str()))).collect();
         self.body = body;
         self.load(paths, false);
@@ -635,6 +650,7 @@ impl Preview {
     /// who are drawn with the human models.
     pub fn show_outfit(&mut self, save: &Path, sex: BodySex, beast: bool, paths: &GamePaths) {
         self.items.clear();
+        self.hidden.clear();
         self.body = true;
         self.sex = sex;
         self.locked = true;
@@ -713,7 +729,7 @@ impl Preview {
 
     /// The models to draw: each piece's, on the chosen body.
     fn models(&self) -> Vec<Item> {
-        self.items.iter().flat_map(|p| p.items(self.sex).iter().cloned()).collect()
+        self.items.iter().flat_map(|p| p.items(self.sex).iter()).filter(|i| !self.hidden.contains(&i.path)).cloned().collect()
     }
 
     fn load(&mut self, paths: &GamePaths, fresh: bool) {
@@ -721,7 +737,8 @@ impl Preview {
         self.loading = true;
         self.in_flight = None;
         self.drawn = None;
-        if self.items.is_empty() {
+        // Nothing to draw: no models, or all hidden with no body to show instead.
+        if self.items.is_empty() || (!self.body && self.models().is_empty()) {
             self.loading = false;
             self.loaded = None;
             self.picture = None;
@@ -824,7 +841,6 @@ impl Preview {
             ui.weak(notice);
         }
         let mut to_add = None;
-        let mut remove = None;
         let mut changed_body = false;
         let mut changed_sex = false;
         ui.horizontal(|ui| {
@@ -871,26 +887,8 @@ impl Preview {
                 }
             }
         });
-        if !self.items.is_empty() {
-            ui.horizontal_wrapped(|ui| {
-                for (i, piece) in self.items.iter().enumerate() {
-                    for item in piece.items(self.sex) {
-                        ui.label(item.label()).on_hover_text(&item.path);
-                    }
-                    if ui.small_button("×").on_hover_text("Remove").clicked() {
-                        remove = Some(i);
-                    }
-                    ui.add_space(6.0);
-                }
-            });
-        }
         if let Some(text) = to_add {
             self.add(&text, paths);
-        }
-        if let Some(i) = remove {
-            self.items.remove(i);
-            self.unlock_if_empty();
-            self.load(paths, false);
         }
         if changed_body || changed_sex {
             self.load(paths, false);
@@ -919,9 +917,13 @@ impl Preview {
         }
 
         egui::Panel::right("preview-report")
-            .default_size(340.0)
+            .default_size(380.0)
             .resizable(true)
-            .show(ui, |ui| self.report_ui(ui, colours));
+            .show(ui, |ui| {
+                self.items_ui(ui, paths);
+                ui.separator();
+                self.report_ui(ui, colours);
+            });
         self.picture_ui(ui);
     }
 
@@ -1047,6 +1049,58 @@ impl Preview {
         }
         self.add_all(&add, paths);
         self.remove_all(&remove, paths);
+    }
+
+    /// The models in the picture, each with its biped slots, a switch to hide it without taking
+    /// it out of the list, and (once per piece) a button to remove it.
+    fn items_ui(&mut self, ui: &mut egui::Ui, paths: &GamePaths) {
+        ui.add_space(4.0);
+        ui.heading(format!("Items ({})", self.items.iter().map(|p| p.items(self.sex).len()).sum::<usize>()));
+        let mut remove = None;
+        let mut toggled = false;
+        let height = (ui.available_height() * 0.45).max(120.0);
+        egui::ScrollArea::vertical().id_salt("preview-items").max_height(height).auto_shrink([false, true]).show(ui, |ui| {
+            for (i, piece) in self.items.iter().enumerate() {
+                for (n, item) in piece.items(self.sex).iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        let mut shown = !self.hidden.contains(&item.path);
+                        if ui.checkbox(&mut shown, "").on_hover_text(if shown { "Hide" } else { "Show" }).changed() {
+                            if shown {
+                                self.hidden.remove(&item.path);
+                            } else {
+                                self.hidden.insert(item.path.clone());
+                            }
+                            toggled = true;
+                        }
+                        let name = egui::RichText::new(item.label());
+                        ui.label(if shown { name } else { name.weak() }).on_hover_text(&item.path);
+                        let slots = item.slot_numbers();
+                        if !slots.is_empty() {
+                            ui.weak(format!("slot {slots}"));
+                        }
+                        if n == 0 {
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.small_button("×").on_hover_text("Remove from the list").clicked() {
+                                    remove = Some(i);
+                                }
+                            });
+                        }
+                    });
+                }
+            }
+        });
+        if let Some(i) = remove {
+            let gone = self.items.remove(i);
+            for item in gone.items(self.sex) {
+                if !self.items.iter().any(|p| p.items(self.sex).iter().any(|o| o.path == item.path)) {
+                    self.hidden.remove(&item.path);
+                }
+            }
+            self.unlock_if_empty();
+            self.load(paths, false);
+        } else if toggled {
+            self.load(paths, false);
+        }
     }
 
     fn report_ui(&self, ui: &mut egui::Ui, colours: &Colours) {
@@ -1535,6 +1589,24 @@ pub(crate) mod tests {
             })
             .collect();
         assert_eq!(shape, ["load 2", "armours A.esp", "render 3", "load 3"]);
+    }
+
+    #[test]
+    fn an_item_names_its_biped_slots_by_number() {
+        let item = Item { slots: 0b11 | (1 << 11), ..Item::from("meshes/a.nif") };
+        assert_eq!(item.slot_numbers(), "30, 31, 41");
+        assert_eq!(Item::from("meshes/a.nif").slot_numbers(), "");
+    }
+
+    #[test]
+    fn a_hidden_item_stays_in_the_list_but_leaves_the_picture() {
+        let ctx = egui::Context::default();
+        let mut preview = Preview::start(&ctx);
+        let (a, b) = (Item::from("meshes/a.nif"), Item::from("meshes/b.nif"));
+        preview.items = vec![Piece::file(a), Piece::file(b)];
+        preview.hidden.insert("meshes/a.nif".into());
+        assert_eq!(preview.items.len(), 2);
+        assert_eq!(preview.models().len(), 1);
     }
 
     #[test]
